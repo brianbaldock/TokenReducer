@@ -1,0 +1,6 @@
+.tokenreducer-*/
+node_modules/
+.env
+.env.*
+!.env.example
+evals/results/live.json

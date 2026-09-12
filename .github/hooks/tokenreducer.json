@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "matcher": "view|bash|powershell",
+        "bash": "bash .github/skills/bulk-reader/scripts/read-gate.sh",
+        "powershell": "& ./.github/skills/bulk-reader/scripts/read-gate.ps1",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

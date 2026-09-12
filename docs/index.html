@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en" data-motion="paused">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0d14">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'">
+  <title>TokenReducer | An experiment in context placement</title>
+  <meta name="description" content="An original Copilot-native experiment: route source-reading work to a separate worker and return compact evidence to the parent. Explore its contracts, accounting, and limits.">
+  <meta property="og:title" content="TokenReducer: more room for judgment">
+  <meta property="og:description" content="A walkthrough of context gating and separate workers. The source is still processed. Less of it enters the parent.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://brianbaldock.github.io/TokenReducer/">
+  <link rel="canonical" href="https://brianbaldock.github.io/TokenReducer/">
+  <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./assets/styles.css">
+  <script type="module" src="./assets/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="nav-container">
+      <a class="brand-badge" href="#overview" aria-label="TokenReducer, back to overview">
+        <span class="brand-icon" aria-hidden="true">TR</span>
+        <span class="brand-title">TokenReducer</span>
+        <span class="brand-tag">Research experiment</span>
+      </a>
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="#overview">Overview</a>
+        <a href="#scene-view">3D scene</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#test-groups">Tests</a>
+        <a href="#benchmarks">Accounting</a>
+        <a href="#setup">Setup</a>
+        <a href="#prior-art">Prior art</a>
+      </nav>
+      <div class="header-tools">
+        <span class="nav-status" data-evidence="regression-count">456/456 passed</span>
+        <button class="scene-btn motion-button" type="button" data-motion-toggle hidden>Play motion</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section class="hero" id="overview" aria-labelledby="hero-title">
+      <div class="container">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <p class="hero-pill"><span class="pulse-dot" aria-hidden="true"></span> Copilot-native / Experimental</p>
+            <h1 class="hero-title" id="hero-title">Less corpus in the parent.<br>More room for judgment.</h1>
+            <p class="hero-lead">Keep your selected coordinator. Give a separate worker the source-reading job. Return compact evidence, or write generated code to disk without streaming its body into the parent's conversation.</p>
+            <div class="hero-actions">
+              <a href="#scene-view" class="btn btn-primary">Inspect the 3D flow</a>
+              <a href="https://github.com/brianbaldock/TokenReducer#readme" class="btn btn-secondary">Read the README</a>
+              <a href="#setup" class="hero-setup-link">Set it up</a>
+            </div>
+            <div class="quick-stats" aria-label="Scripted defaults and evidence status">
+              <div class="quick-stat-card accent-emerald"><div class="stat-label">Verification</div><div class="stat-value stat-status" data-evidence="regression-count">456/456</div><div class="stat-sub">0 failed / 0 skipped</div></div>
+              <div class="quick-stat-card accent-cyan"><div class="stat-label">Read gate</div><div class="stat-value">350</div><div class="stat-sub">Actual lines in the read window</div></div>
+              <div class="quick-stat-card accent-amber"><div class="stat-label">Compact answer</div><div class="stat-value">4,096</div><div class="stat-sub">UTF-8 bytes, not tokens</div></div>
+              <div class="quick-stat-card accent-purple"><div class="stat-label">Work order</div><div class="stat-value">1 MiB</div><div class="stat-sub">Default, including JSON overhead</div></div>
+            </div>
+          </div>
+          <figure class="terminal-card hero-terminal">
+            <figcaption class="terminal-header"><span class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="terminal-title">scripted-worker / illustrated flow</span><span class="terminal-label">NOT A LOG</span></figcaption>
+            <div class="terminal-body">
+              <p class="t-comment"># The coordinator keeps its selected model.</p>
+              <p><span class="t-prompt">[parent]</span> requests a large file read</p>
+              <p><span class="t-warn">[gate]</span> actual window exceeds 350 lines</p>
+              <p><span class="t-warn">[gate]</span> deny with delegation guidance</p>
+              <p><span class="t-prompt">[skill]</span> question + explicit paths + root</p>
+              <p><span class="t-ok">[worker]</span> fresh CLI process; piped stdin JSON</p>
+              <p><span class="t-ok">[worker]</span> full source processed in its own context</p>
+              <p><span class="t-cmd">[check]</span> reported model + bounded final output</p>
+              <p><span class="t-prompt">[parent]</span> compact answer, or {written, bytes, model}</p>
+              <p class="terminal-footnote">The gate nudges; the skill routes work. This is not an automatic hook-to-worker handoff.</p>
+            </div>
+          </figure>
+        </div>
+        <aside class="disclaimer-banner" aria-label="Experimental status">
+          <span class="disclaimer-icon">EXPERIMENT</span>
+          <div class="disclaimer-content"><h2>Measure context placement. Do not assume bill savings.</h2><p>A smaller parent-input proxy is the experiment. The worker still processes the source. Better reasoning, lower latency, and lower invoices are not established results. A targeted search or small <code>view_range</code> can already be the right solution.</p></div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="scene-section" id="scene-view" aria-labelledby="scene-title">
+      <div class="container">
+        <div class="section-head"><p class="section-tag">01 / Interactive WebGL illustration</p><h2 class="section-title" id="scene-title">A separate context, not a security sandbox.</h2><p class="section-desc">The parent's cyan core stays on the left. The source corpus sits off to the right, feeding a green worker. Only a compact result travels back. The shapes illustrate the mechanism, not a live trace, token count, or quality measurement.</p></div>
+        <figure class="scene-viewport-wrapper">
+          <div class="scene-topbar">
+            <span class="mono">Invented geometry / No files or models involved</span>
+            <div class="scene-top-actions"><button class="btn btn-primary" type="button" id="enable-scene" hidden>Enable 3D</button><button class="scene-btn" type="button" data-motion-toggle hidden>Play motion</button></div>
+          </div>
+          <p class="scene-status" id="scene-status" role="status" data-state="static">Static illustration. 3D is not enabled; no CDN request has been made.</p>
+          <noscript><p class="scene-unavailable">JavaScript is disabled. No 3D scene is running. The illustration, captions, and all technical content remain readable.</p></noscript>
+          <div class="scene-stage">
+            <div class="scene-hud-overlay">
+              <div class="hud-panel"><div class="hud-title"><span>Context flow</span><span class="hud-status-badge">ILLUSTRATIVE</span></div><p class="hud-phase" id="hud-phase-label">SOURCE -> WORKER -> COMPACT RETURN</p><p class="hud-step-desc" id="hud-desc-text">The complete source is still processed in the worker's context.</p><p class="hud-stats-row">Parent model: <strong>unchanged</strong></p></div>
+            </div>
+            <div class="scene-image" role="img" aria-label="A cyan parent context on the left is separate from the amber source corpus and green worker on the right. Amber source stays on the worker side. A compact violet result returns to the parent.">
+              <svg class="scene-fallback" id="scene-fallback" viewBox="0 0 1100 490" aria-hidden="true">
+                <defs>
+                  <pattern id="fallback-grid" width="44" height="26" patternUnits="userSpaceOnUse" patternTransform="skewX(-22)"><path d="M44 0H0V26" fill="none" stroke="#1c2940"></path></pattern>
+                  <radialGradient id="parent-glow"><stop offset="0" stop-color="#00e5ff" stop-opacity=".25"></stop><stop offset="1" stop-color="#00e5ff" stop-opacity="0"></stop></radialGradient>
+                </defs>
+                <rect width="1100" height="490" fill="#080a10"></rect><rect y="280" width="1100" height="210" fill="url(#fallback-grid)"></rect>
+                <circle cx="270" cy="278" r="160" fill="url(#parent-glow)"></circle>
+                <ellipse cx="270" cy="278" rx="137" ry="45" fill="none" stroke="#00e5ff" stroke-opacity=".55"></ellipse>
+                <ellipse cx="270" cy="278" rx="60" ry="115" fill="none" stroke="#287790"></ellipse>
+                <ellipse cx="270" cy="278" rx="108" ry="68" transform="rotate(-34 270 278)" fill="none" stroke="#00e5ff" stroke-opacity=".55"></ellipse>
+                <path d="m270 202 74 52-27 86h-94l-28-86Z" fill="#075c76" stroke="#00e5ff" stroke-width="2"></path>
+                <path d="m270 202-47 138 121-86H195l122 86Z" fill="none" stroke="#00e5ff"></path>
+                <path d="M500 175v202m30-212v220m-30-190 30-10m-30 43 30-10m-30 43 30-10m-30 43 30-10m-30 43 30-10m-30 43 30-10" stroke="#f59e0b" stroke-opacity=".8"></path>
+                <path d="m858 99 93-34 69 36-95 36Zm0 19 93-34 69 36-95 36Zm0 19 93-34 69 36-95 36Z" fill="#7c4c0c" stroke="#f7bc49" stroke-width="2"></path>
+                <path d="M923 182c-54 5-75 47-88 86" fill="none" stroke="#f59e0b" stroke-width="2" stroke-dasharray="6 6"></path>
+                <rect x="883" y="211" width="14" height="14" rx="2" fill="#f59e0b"></rect><rect x="853" y="241" width="11" height="11" rx="2" fill="#f59e0b"></rect>
+                <path d="m750 284 77-45 79 45v97l-79 45-77-45Zm0 0 77 45 79-45m-79 45v97" fill="#0b392e" stroke="#41d6a3" stroke-width="2"></path>
+                <path d="m827 280 37 51-37 51-37-51Z" fill="#0d8c65" stroke="#62f3be" stroke-width="2"></path>
+                <ellipse cx="827" cy="332" rx="92" ry="29" fill="none" stroke="#10b981" transform="rotate(-23 827 332)"></ellipse>
+                <path d="M786 266C660 135 460 151 324 230" fill="none" stroke="#c084fc" stroke-width="2" stroke-dasharray="6 7"></path>
+                <path d="m583 174 11-10 11 10-11 11Z" fill="#d2a3ff"></path>
+              </svg>
+              <div id="three-canvas-container"></div>
+            </div>
+            <span class="scene-mode-label" id="scene-mode-label">Static diagram / 3D optional</span>
+          </div>
+          <div class="scene-controls" id="scene-controls" hidden>
+            <div class="scene-control-group" role="group" aria-label="Inspect a still stage"><span class="control-label">Pause &amp; inspect</span><button class="scene-btn" type="button" data-scene-stage="0" aria-pressed="false">Source</button><button class="scene-btn" type="button" data-scene-stage="1" aria-pressed="false">Worker</button><button class="scene-btn" type="button" data-scene-stage="2" aria-pressed="false">Return</button></div>
+            <div class="scene-control-group" role="group" aria-label="Camera controls"><button class="scene-btn" type="button" id="btn-orbit-left">View left</button><button class="scene-btn" type="button" id="btn-orbit-right">View right</button><button class="scene-btn" type="button" id="btn-reset-cam">Reset view</button></div>
+          </div>
+          <figcaption class="scene-legend">
+            <div class="legend-item"><span class="legend-color blue" aria-hidden="true"></span><div><strong>Parent coordinator</strong><p>Your selected model. Receives a compact result and keeps the judgment.</p></div></div>
+            <div class="legend-item"><span class="legend-color amber" aria-hidden="true"></span><div><strong>Full source corpus</strong><p>Still read and processed in the worker. It is not eliminated by delegation.</p></div></div>
+            <div class="legend-item"><span class="legend-color green" aria-hidden="true"></span><div><strong>Isolated worker context</strong><p>A fresh CLI process, not an OS sandbox. The grid barrier represents the read gate.</p></div></div>
+            <div class="legend-item"><span class="legend-color purple" aria-hidden="true"></span><div><strong>Compact return</strong><p>An anchored answer or file confirmation. Review and follow-ups still cost context.</p></div></div>
+          </figcaption>
+        </figure>
+        <p class="scene-explanation"><strong>Static first:</strong> Three.js loads only when you enable 3D. A failed CDN load or WebGL renderer leaves an explicit error and this static illustration. All controls work from the keyboard; reduced-motion preferences keep the scene still. Dependency: <a href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js">Three.js 0.170.0 (r170), pinned on jsDelivr</a>.</p>
+      </div>
+    </section>
+
+    <section class="architecture-section" id="architecture" aria-labelledby="architecture-title">
+      <div class="container">
+        <div class="section-head"><p class="section-tag">02 / Architecture &amp; boundaries</p><h2 class="section-title" id="architecture-title">Skills route. The gate nudges. Scripts enforce.</h2><p class="section-desc">The parent is your existing coordinator. A scripted worker is a new Copilot process with one explicit work order. Native named agents are also available, but their instruction-only path does not inherit the scripted guarantees or accounting below.</p></div>
+        <div class="diagram-card">
+          <div class="diagram-header"><h3>Execution flow &amp; context placement</h3><div class="diagram-view-toggle" id="diagram-tabs" hidden aria-label="Architecture diagrams"><button class="view-btn" type="button" id="tab-sequence" data-view="sequence">Sequence flow</button><button class="view-btn" type="button" id="tab-topology" data-view="topology">Context topology</button><button class="view-btn" type="button" id="tab-disk" data-view="disk">Generate to disk</button></div></div>
+          <p class="diagram-hint">On narrow screens, scroll the diagram horizontally or use its written caption.</p>
+          <figure class="diagram-view-content" id="diagram-sequence">
+            <h4 class="diagram-heading">From a large read to a bounded answer</h4>
+            <div class="svg-diagram-wrapper" tabindex="0" role="region" aria-label="Sequence diagram, horizontally scrollable">
+            <svg class="architecture-svg" viewBox="0 0 980 340" role="img" aria-labelledby="sequence-title sequence-desc">
+              <title id="sequence-title">A gate nudge followed by a separate scripted worker</title><desc id="sequence-desc">The parent requests a read. A read window over 350 lines receives denial and guidance. The skill invokes a script with explicit input. Full file bytes enter the worker through stdin. A validated compact answer returns to the parent.</desc>
+              <defs><marker id="arrow-cyan" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="m0 0 7 3.5L0 7Z" fill="#00e5ff"></path></marker><marker id="arrow-amber" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="m0 0 7 3.5L0 7Z" fill="#f59e0b"></path></marker><marker id="arrow-green" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="m0 0 7 3.5L0 7Z" fill="#40d6a0"></path></marker></defs>
+              <rect x="18" y="18" width="204" height="294" rx="8" fill="#111622" stroke="#2d3e59"></rect><rect x="258" y="18" width="208" height="294" rx="8" fill="#111622" stroke="#2d3e59"></rect><rect x="502" y="18" width="210" height="294" rx="8" fill="#111622" stroke="#2d3e59"></rect><rect x="748" y="18" width="210" height="294" rx="8" fill="#111622" stroke="#2d3e59"></rect>
+              <g font-family="monospace" font-size="12" text-anchor="middle"><text x="120" y="48" fill="#00e5ff">PARENT / SKILL</text><text x="362" y="48" fill="#f59e0b">READ GATE</text><text x="607" y="48" fill="#c084fc">SCRIPT / TRANSPORT</text><text x="853" y="48" fill="#40d6a0">SEPARATE WORKER</text></g>
+              <path d="M124 93H350" stroke="#00e5ff" stroke-width="2" marker-end="url(#arrow-cyan)"></path><text x="229" y="81" fill="#d3deee" font-family="monospace" font-size="11" text-anchor="middle">1. Read request</text>
+              <rect x="289" y="107" width="148" height="42" rx="4" fill="#30200d" stroke="#f59e0b"></rect><text x="363" y="133" fill="#ffd186" font-family="monospace" font-size="11" text-anchor="middle">WINDOW &gt; 350 LINES</text>
+              <path d="M352 173H135" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrow-amber)"></path><text x="241" y="163" fill="#ffd186" font-family="monospace" font-size="11" text-anchor="middle">2. Denial + guidance</text>
+              <path d="M128 216H592" stroke="#00e5ff" stroke-width="2" marker-end="url(#arrow-cyan)"></path><text x="356" y="205" fill="#d3deee" font-family="monospace" font-size="11" text-anchor="middle">3. Skill invokes script with explicit inputs</text>
+              <path d="M620 247H840" stroke="#40d6a0" stroke-width="2" marker-end="url(#arrow-green)"></path><text x="736" y="235" fill="#90e9c6" font-family="monospace" font-size="11" text-anchor="middle">4. File bytes via stdin</text>
+              <path d="M840 283H137" stroke="#c084fc" stroke-width="2" marker-end="url(#arrow-cyan)"></path><text x="483" y="274" fill="#dcc0ff" font-family="monospace" font-size="11" text-anchor="middle">5. Script validates model and bounded final output</text>
+            </svg>
+            </div>
+            <figcaption><strong>1.</strong> The parent requests a read. <strong>2.</strong> The gate checks the real line window and returns guidance if it is oversized. <strong>3.</strong> The skill routes a separate scripted job. <strong>4.</strong> Source bytes enter only the child work order. <strong>5.</strong> A model-verified, bounded result returns. The hook does not automatically execute the worker.</figcaption>
+          </figure>
+          <figure class="diagram-view-content" id="diagram-topology">
+            <h4 class="diagram-heading">Full-parent ingestion versus scripted delegation</h4>
+            <div class="svg-diagram-wrapper" tabindex="0" role="region" aria-label="Context topology diagram, horizontally scrollable">
+            <svg class="architecture-svg" viewBox="0 0 980 320" role="img" aria-labelledby="topology-title topology-desc">
+              <title id="topology-title">Two context layouts with worker input counted separately</title><desc id="topology-desc">The comparison baseline places full source in the parent. The scripted path gives the parent a compact return while the full source still occupies the separate worker's context. Shapes are schematic and not proportional measurements.</desc>
+              <rect x="20" y="20" width="442" height="270" rx="8" fill="#1c1421" stroke="#754052"></rect><rect x="518" y="20" width="442" height="270" rx="8" fill="#10212c" stroke="#236c84"></rect>
+              <g font-family="monospace" font-size="13" text-anchor="middle"><text x="241" y="54" fill="#ff9aaa">FULL-CORPUS BASELINE</text><text x="739" y="54" fill="#00e5ff">SCRIPTED DELEGATION</text></g>
+              <rect x="46" y="80" width="390" height="102" rx="5" fill="#452030" stroke="#fb7185"></rect><text x="241" y="123" fill="#ffe6eb" font-family="monospace" font-size="13" text-anchor="middle">Parent: full source + task</text><text x="241" y="151" fill="#ffbdc9" font-family="monospace" font-size="11" text-anchor="middle">An ingestion baseline, not ideal search</text>
+              <rect x="544" y="80" width="390" height="56" rx="5" fill="#0b3944" stroke="#00e5ff"></rect><text x="739" y="115" fill="#bdf7ff" font-family="monospace" font-size="13" text-anchor="middle">Parent: task + compact return</text>
+              <rect x="544" y="163" width="390" height="97" rx="5" fill="#11382d" stroke="#40d6a0"></rect><text x="739" y="201" fill="#b5ffe0" font-family="monospace" font-size="13" text-anchor="middle">Worker: complete source still processed</text><text x="739" y="232" fill="#8edcbb" font-family="monospace" font-size="11" text-anchor="middle">Separate context, not eliminated input</text>
+              <text x="241" y="232" fill="#bdc9da" font-family="monospace" font-size="11" text-anchor="middle">Small reads and targeted search already exist.</text>
+            </svg>
+            </div>
+            <figcaption><strong>Before:</strong> full corpus in the parent. <strong>After:</strong> compact evidence in the parent, full corpus in the worker. These shapes are schematic, not token allocations. The benchmark is not a comparison against the best targeted-search or small-read workflow.</figcaption>
+          </figure>
+          <figure class="diagram-view-content" id="diagram-disk">
+            <h4 class="diagram-heading">Write the artifact; return the receipt</h4>
+            <div class="svg-diagram-wrapper" tabindex="0" role="region" aria-label="Generation to disk diagram, horizontally scrollable">
+            <svg class="architecture-svg" viewBox="0 0 980 285" role="img" aria-labelledby="disk-title disk-desc">
+              <title id="disk-title">Generation to disk with confirmation-only stdout</title><desc id="disk-desc">The parent supplies a specification and mandatory reference. A separate worker produces code. The script checks it and atomically publishes a file up to one MiB. The parent receives written, bytes, and model fields, not the generated body.</desc>
+              <defs><marker id="disk-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="m0 0 7 3.5L0 7Z" fill="#c084fc"></path></marker></defs>
+              <rect x="24" y="30" width="270" height="214" rx="8" fill="#17152b" stroke="#7951a2"></rect><rect x="356" y="30" width="270" height="214" rx="8" fill="#10261f" stroke="#237857"></rect><rect x="688" y="30" width="270" height="214" rx="8" fill="#10232e" stroke="#236c84"></rect>
+              <g font-family="monospace" text-anchor="middle"><text x="159" y="70" font-size="13" fill="#d8b4fe">EXPLICIT WORK ORDER</text><text x="159" y="119" font-size="12" fill="#d5deec">Spec + mandatory reference</text><text x="159" y="148" font-size="12" fill="#d5deec">Optional target path</text><text x="159" y="208" font-size="11" fill="#a8b8d0">No inherited transcript</text>
+              <text x="491" y="70" font-size="13" fill="#70e7b9">WORKER + SCRIPT</text><text x="491" y="119" font-size="12" fill="#d5deec">Validate nonempty final code</text><text x="491" y="148" font-size="12" fill="#d5deec">Private staging, atomic publish</text><text x="491" y="208" font-size="11" fill="#a8b8d0">1 MiB file ceiling, including newline</text>
+              <text x="823" y="70" font-size="13" fill="#00e5ff">PARENT RECEIPT</text><text x="823" y="119" font-size="12" fill="#d5deec">{written, bytes, model}</text><text x="823" y="148" font-size="12" fill="#d5deec">Generated body stays on disk</text><text x="823" y="208" font-size="11" fill="#a8b8d0">Bounded review still costs context</text></g>
+              <path d="M300 132H344M632 132H676" stroke="#c084fc" stroke-width="2" marker-end="url(#disk-arrow)"></path>
+            </svg>
+            </div>
+            <figcaption>Generation requires a specification and a reference. The script validates the result before publication. Existing targets need <code>--overwrite</code>; conflicts or concurrent changes are refused. The JSON receipt is not a diff summary or a substitute for inspecting the generated code.</figcaption>
+          </figure>
+        </div>
+        <div class="mech-grid">
+          <article class="mech-card"><p class="mech-num">[01] BULK-READER</p><h3>Question + explicit paths + root</h3><p>The scripted reader defaults to <code>claude-haiku-4.5</code>. It answers a focused question about the supplied source, preserving useful file and line anchors. No inherited transcript.</p></article>
+          <article class="mech-card"><p class="mech-num">[02] CODE-WRITER</p><h3>Spec + mandatory reference</h3><p>The scripted writer defaults to <code>gpt-5.4-mini</code>. An optional target keeps generated code on disk. The parent receives only <code>{written, bytes, model}</code>; stderr contains coarse metadata.</p></article>
+          <article class="mech-card"><p class="mech-num">[03] MODEL CONTRACT</p><h3>Only unavailability permits retry</h3><p>An unavailable model may retry <code>gpt-5-mini</code> within a shared 120-second deadline. Missing or wrong reported model identity is an error: no returned answer, no published file, no fallback.</p></article>
+        </div>
+        <aside class="boundary-note"><h3>A narrow gate, not universal output control</h3><p><code>preToolUse</code> supports matching <code>toolName</code> with a regex anchored to the full name. The shipped matcher is <code>view|bash|powershell</code>, with Bash and PowerShell launchers. It counts actual read windows; an empty-object pass-through preserves host permission handling.</p><p>Search output, pipelines, arbitrary programs, and custom tools can still emit large bodies. Hook timeout behavior is host fail-open, and project hooks require a trusted folder. There is no parent/worker bypass and no sandbox or DLP claim. Prefer a genuinely small read when it resolves the question.</p></aside>
+      </div>
+    </section>
+
+    <section class="tests-section" id="test-groups" aria-labelledby="tests-title">
+      <div class="container">
+        <div class="section-head"><p class="section-tag">03 / Verification &amp; test battery</p><h2 class="section-title" id="tests-title">What is exercised, what must hold, what remains unproven.</h2><p class="section-desc">Original fixtures and a deterministic stub CLI test the contracts. These eight groups organize the walkthrough rather than report separate pass totals. Optional live checks are a separate, authentication-dependent path.</p></div>
+        <div class="tap-banner"><div class="tap-banner-left"><strong class="tap-badge" data-evidence="regression-count">456/456 passed</strong><div class="tap-info"><h3>Contract checks, not model-quality certification</h3><p data-evidence="offline-status"><code>npm test</code> and <code>npm run eval</code> each reported: <strong>456/456 passed; 0 failed; 0 skipped.</strong></p></div></div><span class="tap-version">Node.js &gt;=20 / No npm install</span></div>
+        <div class="test-filter-tools" id="test-filter-tools" hidden><label for="test-search-filter">Find a test group</label><div class="filter-row"><input type="search" id="test-search-filter" placeholder="Try model, UTF-8, overwrite, or live" maxlength="160" autocomplete="off" spellcheck="false" aria-controls="test-group-list"><button class="scene-btn" id="clear-test-filter" type="button">Clear filter</button></div><p id="test-filter-status" class="filter-status" role="status">8 test groups shown.</p></div>
+        <div class="test-groups-grid" id="test-group-list">
+          <article class="test-card" id="test-hook"><div class="test-card-header"><span class="test-group-id">[01] Hook</span><span class="test-status">Deterministic</span></div><div class="test-card-body"><h3>Count the actual read window</h3><dl class="test-contract">
+            <div><dt>Stimulus</dt><dd>Large reads, finite small ranges, EOF suffixes, oversized windows, ordinary calls, and the included Bash and PowerShell launcher paths.</dd></div>
+            <div class="test-assertions"><dt>Contract</dt><dd>The default gate is 350 lines, not 4,000 tokens. Count actual remaining or requested lines rather than accepting every offset/limit pair as bounded. Keep small windows usable. Pass ordinary calls through with an empty object so host permissions still apply.</dd></div>
+            <div class="test-limit"><dt>Does not prove</dt><dd>The hook is not a universal output filter. Other tools and arbitrary programs can print large bodies. A host timeout is fail-open, and project hooks require workspace trust.</dd></div>
+          </dl></div></article>
+          <article class="test-card" id="test-transport"><div class="test-card-header"><span class="test-group-id">[02] Transport</span><span class="test-status">Deterministic</span></div><div class="test-card-body"><h3>A fresh worker with verifiable model evidence</h3><dl class="test-contract">
+            <div><dt>Stimulus</dt><dd>A stub CLI receives JSON work orders and returns JSONL containing valid responses, model-unavailable outcomes, missing or wrong model evidence, and attempted tool calls.</dd></div>
+            <div class="test-assertions"><dt>Contract</dt><dd>Use piped stdin, not <code>-p</code>, with a private temporary <code>COPILOT_HOME</code>. No inherited transcript, MCP, custom instructions, or remote export. <code>tools: []</code> restricts actual tool availability; extra CLI denial kinds are exactly <code>shell</code>, <code>write</code>, and <code>url</code>. Reject tool attempts and invalid model evidence. Pass only environment-supported CLI authentication, never pasted secrets; clean transport and staging directories.</dd></div>
+            <div class="test-limit"><dt>Does not prove</dt><dd>A stub does not certify every CLI or provider. Process isolation and tool restrictions are not a security sandbox or DLP boundary. Only model unavailability permits the fallback within the shared 120-second deadline.</dd></div>
+          </dl></div></article>
+          <article class="test-card" id="test-input"><div class="test-card-header"><span class="test-group-id">[03] Input</span><span class="test-status">Deterministic</span></div><div class="test-card-body"><h3>Explicit paths and complete byte budgets</h3><dl class="test-contract">
+            <div><dt>Stimulus</dt><dd>Malformed flags and configuration; absent, escaping, directory, special, binary, or invalid-UTF-8 files; quoted names; oversized instructions; too many paths; and two large inputs with unique first and last anchors.</dd></div>
+            <div class="test-assertions"><dt>Contract</dt><dd>Accept UTF-8 regular files inside the root, up to 64 explicit paths. Contained input symlinks canonicalize; symlink escape fails. Count the full serialized JSON work order against the default 1 MiB ceiling, including labels, rules, and line numbers. Reject invalid inputs before invoking Copilot. Reader numbering preserves real lines and anchors; code references remain raw.</dd></div>
+            <div class="test-limit"><dt>Does not prove</dt><dd>Containment and valid encoding do not make source instructions trustworthy. They do not guarantee a correct answer or resistance to every prompt injection.</dd></div>
+          </dl></div></article>
+          <article class="test-card" id="test-output"><div class="test-card-header"><span class="test-group-id">[04] Output</span><span class="test-status">Deterministic</span></div><div class="test-card-body"><h3>Only a nonempty, bounded final result</h3><dl class="test-contract">
+            <div><dt>Stimulus</dt><dd>Empty answers, empty or malformed fences, trailing explanations, unsafe controls, malformed Unicode, and ASCII or multibyte responses at the compact-output boundary.</dd></div>
+            <div class="test-assertions"><dt>Contract</dt><dd>Require a nonempty final result and strip whole-response fences without rewriting raw indentation. Enforce the 4,096-byte UTF-8 answer ceiling, not a character or token count. Withhold malformed responses. Errors must not forward a partial answer to parent stdout.</dd></div>
+            <div class="test-limit"><dt>Does not prove</dt><dd>A compact, well-formed answer can still be wrong. Model verification checks transport evidence, not factual truth or complete symbol extraction.</dd></div>
+          </dl></div></article>
+          <article class="test-card" id="test-generation"><div class="test-card-header"><span class="test-group-id">[05] Generation</span><span class="test-status">Deterministic</span></div><div class="test-card-body"><h3>Publish atomically; return a small receipt</h3><dl class="test-contract">
+            <div><dt>Stimulus</dt><dd>Nontrivial generated stub code; a follow-up using the just-written file in a fresh worker; exact 1 MiB boundaries including the newline; existing or concurrently changed targets; missing parents; traversal; symlinks; and hardlinks.</dd></div>
+            <div class="test-assertions"><dt>Contract</dt><dd>The target parent must exist. Existing files require <code>--overwrite</code>; conflicts and concurrent changes are refused. No symlink target. Publish atomically from private staging, with private Unix permissions for new files. Include the published newline in the 1 MiB limit. Return only <code>{written, bytes, model}</code>, not the generated body.</dd></div>
+            <div class="test-limit"><dt>Does not prove</dt><dd>Safe publication is not a code review. Bounded inspection and execution still cost time and tokens. No zero-parent-token claim is made for reading generated code.</dd></div>
+          </dl></div></article>
+          <article class="test-card" id="test-accounting"><div class="test-card-header"><span class="test-group-id">[06] Accounting</span><span class="test-status">Deterministic</span></div><div class="test-card-body"><h3>A reproducible proxy, with visible overhead</h3><dl class="test-contract">
+            <div><dt>Stimulus</dt><dd>Original deterministic fixtures of at least 700 lines, unique first/last anchors, an executable ESM reference, and labeled nontrivial stub generation across single-file, multifile, and disk-output scenarios.</dd></div>
+            <div class="test-assertions"><dt>Contract</dt><dd>Keep fixtures complete and reproducible. Compare full-corpus parent ingestion with actual scripted skill, request, reply, and coarse metadata, plus fixed delegation overhead. Include the generation review allowance and keep worker processing distinct. Display <code>ceil(characters / 4)</code>; compute percentages from unrounded character totals.</dd></div>
+            <div class="test-limit"><dt>Does not prove</dt><dd>No tokenizer, invoice, model quality, or native-agent result is measured by the stub. The baseline is not an ideal targeted-search or small-read workflow.</dd></div>
+          </dl></div></article>
+          <article class="test-card" id="test-installer"><div class="test-card-header"><span class="test-group-id">[07] Installer</span><span class="test-status">Deterministic</span></div><div class="test-card-body"><h3>Install owned assets, not a workspace takeover</h3><dl class="test-contract">
+            <div><dt>Stimulus</dt><dd>Fixture project and personal installs; paths containing spaces, apostrophes, dollar signs, and semicolons; repeated installs; unrelated sentinel files; conflicts; and symlinked installation destinations.</dd></div>
+            <div class="test-assertions"><dt>Contract</dt><dd>Copy only owned skills, hooks, and agents. Preserve unrelated files. Preflight conflicts and require <code>--overwrite</code>. Refuse symlinked destinations. Personal hook paths are absolute and quoted. Exercise installed launchers as well as source templates.</dd></div>
+            <div class="test-limit"><dt>Does not prove</dt><dd>A fixture install cannot establish user trust, certify every operating system or CLI version, or guarantee that the host has enabled project hooks.</dd></div>
+          </dl></div></article>
+          <article class="test-card" id="test-live"><div class="test-card-header"><span class="test-group-id">[08] Live</span><span class="test-status">Verified live</span></div><div class="test-card-body"><h3>Verified anchors and generated-module syntax</h3><dl class="test-contract">
+            <div><dt>Stimulus</dt><dd>The optional <code>npm run eval:live</code> was executed on <time datetime="2026-09-12">12 September 2026</time> using Copilot CLI <code data-evidence="live-cli-version">1.0.84-2</code>, supported authentication, and available models. It exercised exact first/last-anchor requests and generation to disk.</dd></div>
+            <div class="test-assertions"><dt>Verified output</dt><dd>Reported successful models: <code>claude-haiku-4.5</code> and <code>gpt-5.4-mini</code>. <strong data-evidence="live-status">LIVE verified: 2 exact first/last-anchor requests; <span data-evidence="live-generated-bytes">13,998</span>-byte generated ES module written and syntax-checked.</strong></dd></div>
+            <div class="test-limit"><dt>Does not prove</dt><dd>This is a scoped anchor/output and syntax check, not general code-quality or billing validation. <strong data-evidence="live-parent-body-tokens">Parent generated-body tokens were not measured.</strong> These real-model checks do not turn the separate STUB accounting figures into live savings.</dd></div>
+          </dl></div></article>
+        </div>
+        <p class="no-results" id="test-no-results" hidden>No matching test groups. Clear the filter to see all eight contracts.</p>
+      </div>
+    </section>
+
+    <section class="benchmarks-section" id="benchmarks" aria-labelledby="benchmarks-title">
+      <div class="container">
+        <div class="section-head"><p class="section-tag">04 / Reproducible accounting</p><h2 class="section-title" id="benchmarks-title">Count what reaches the parent. Keep the worker on the ledger.</h2><p class="section-desc">Character-based estimates compare full-corpus parent ingestion with scripted delegation. They do not measure inference tokens, model pricing, answer quality, or total task cost. The native named-agent path is not represented.</p></div>
+        <div class="benchmark-card-main">
+          <div class="benchmark-status-row"><h3 data-evidence="benchmark-status">Current STUB accounting</h3><span class="status-optional">Not a live-model run</span></div>
+          <p class="benchmark-note" data-evidence="benchmark-note"><code>npm run benchmark</code> completed successfully. These current verified totals include the updated skill text, which increases counted overhead compared with earlier snapshots. Re-run against the exact version you use.</p>
+          <div class="benchmarks-table-wrapper" tabindex="0" role="region" aria-label="Parent-context accounting table, horizontally scrollable">
+            <table class="bench-table">
+              <caption>Current deterministic STUB run, verified 12 September 2026. Parent and worker columns are character-based token estimates.</caption>
+              <thead><tr><th scope="col">Scripted scenario</th><th scope="col">Full material in parent</th><th scope="col">Delegated parent total</th><th scope="col">Worker input estimate</th><th scope="col">Lower parent-input proxy</th><th scope="col">Parent footprint</th></tr></thead>
+              <tbody>
+                <tr data-benchmark="large-file"><th scope="row"><span class="bench-scenario">One large file</span><span class="bench-desc">Scripted bulk-reader</span></th><td><span class="token-val orig" data-metric="large-file-baseline">30,915</span></td><td><span class="token-val reduced" data-metric="large-file-delegated">858</span></td><td><span class="token-val worker" data-metric="large-file-worker-input">31,586</span></td><td><span class="reduction-badge" data-metric="large-file-reduction">97.23%</span></td><td><div class="paired-bars" aria-hidden="true"><span class="bar-original"><i></i></span><span class="bar-reduced bar-large-file"><i></i></span></div></td></tr>
+                <tr data-benchmark="multi-file"><th scope="row"><span class="bench-scenario">Several source files</span><span class="bench-desc">Scripted bulk-reader</span></th><td><span class="token-val orig" data-metric="multi-file-baseline">62,455</span></td><td><span class="token-val reduced" data-metric="multi-file-delegated">893</span></td><td><span class="token-val worker" data-metric="multi-file-worker-input">64,460</span></td><td><span class="reduction-badge" data-metric="multi-file-reduction">98.57%</span></td><td><div class="paired-bars" aria-hidden="true"><span class="bar-original"><i></i></span><span class="bar-reduced bar-multi-file"><i></i></span></div></td></tr>
+                <tr data-benchmark="generation"><th scope="row"><span class="bench-scenario">Generate to disk</span><span class="bench-desc">Scripted code-writer</span></th><td><span class="token-val orig" data-metric="generation-baseline">17,747</span></td><td><span class="token-val reduced" data-metric="generation-delegated">1,461</span></td><td><span class="token-val worker" data-metric="generation-worker-input">13,903</span></td><td><span class="reduction-badge" data-metric="generation-reduction">91.77%</span></td><td><div class="paired-bars" aria-hidden="true"><span class="bar-original"><i></i></span><span class="bar-reduced bar-generation"><i></i></span></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="bar-caption"><span class="legend-color rose" aria-hidden="true"></span> Full-parent material <span class="legend-color green" aria-hidden="true"></span> Delegated parent total. The complete input is still processed by the worker.</p>
+          <div class="bench-deep-dive">
+            <article class="deep-dive-card"><h4>One explicit estimator</h4><p>Displayed estimates use <code>ceil(characters / 4)</code>. Percentages use unrounded character totals, not the rounded displayed estimates. This is not a tokenizer.</p></article>
+            <article class="deep-dive-card"><h4>Include the delegation overhead</h4><p>The scripted side includes actual skill, request, reply, and coarse metadata, plus a fixed 1,024-character delegation allowance. Worker input is not eliminated.</p></article>
+            <article class="deep-dive-card"><h4>Keep code review in the comparison</h4><p>The current generator fixture wrote <strong data-metric="generation-disk-bytes">13,896</strong> bytes to disk. Its parent total reserves <strong data-metric="generation-review-tokens">512</strong> review tokens. Inspection is not free; live review-token consumption is not measured here.</p></article>
+          </div>
+        </div>
+        <div class="diagram-card calculator-card">
+          <h3>Character arithmetic, not a savings predictor.</h3><p class="section-desc calculator-intro">Enter two explicit character totals. Include any delegation overhead yourself. This calculator does not predict answer length, choose a model, or estimate a bill. Its defaults are illustrative, not benchmark inputs.</p>
+          <div class="calculator-controls" id="calculator-controls" hidden>
+            <div class="calculator-inputs"><div><label for="calc-input-chars">Baseline parent characters</label><input type="number" id="calc-input-chars" value="100000" step="1" min="1" max="1000000000" inputmode="numeric" aria-describedby="calc-help calc-error"></div><div><label for="calc-delegated-chars">Delegated parent characters, including overhead</label><input type="number" id="calc-delegated-chars" value="4000" step="1" min="0" max="1000000000" inputmode="numeric" aria-describedby="calc-help calc-error"></div><p id="calc-help">Whole character counts, at most 1,000,000,000. Both inputs stay in this page's memory.</p><p class="calculator-error" id="calc-error" role="status"></p></div>
+            <div class="calculator-results" id="calculator-results" aria-live="polite" aria-atomic="true"><dl><div><dt>Baseline estimate</dt><dd id="calc-orig-tokens">25,000</dd></div><div><dt>Delegated estimate</dt><dd id="calc-reduced-tokens">1,000</dd></div><div><dt>Character-total difference</dt><dd id="calc-change-pct">96.00% lower</dd></div></dl><div class="paired-bars calculator-bars" aria-hidden="true"><span class="bar-original" id="calc-original-fill"></span><span class="bar-reduced" id="calc-delegated-fill"></span></div><p>Token proxies use ceiling division by four. Bars share the larger input as their scale.</p></div>
+          </div>
+          <noscript><p class="plain-note">The optional calculator requires JavaScript. The formula and all benchmark explanations above remain available.</p></noscript>
+        </div>
+        <aside class="boundary-note"><h3>Not a comparison against ideal targeted reading</h3><p>The baseline ingests the full corpus in the parent. Existing bounded reads and targeted search can already avoid that. These percentages neither apply to native named-agent delegation nor establish better reasoning, secure code, shorter tasks, or lower invoices.</p></aside>
+      </div>
+    </section>
+
+    <section class="setup-section" id="setup" aria-labelledby="setup-title">
+      <div class="container">
+        <div class="section-head"><p class="section-tag">05 / Setup &amp; reproduction</p><h2 class="section-title" id="setup-title">Install deliberately. Delegate from your existing coordinator.</h2><p class="section-desc">Use Node.js &gt;=20 and an authenticated Copilot CLI for worker execution. Runtime and evals use only Node's standard library. No <code>npm install</code> is needed.</p></div>
+        <div class="setup-grid">
+          <ol class="setup-steps">
+            <li><h3>Get the source and install owned assets.</h3><p>The installer copies only TokenReducer's skills, hooks, and agents. Replace the example workspace path; quote paths with spaces. Unrelated files remain intact. Conflicts require <code>--overwrite</code>.</p></li>
+            <li><h3>Review, trust, and restart the CLI.</h3><p>Review the installed hooks before trusting the folder. Restart Copilot CLI, then check <code>/skills list</code> and <code>/skills info bulk-reader</code>. Project hooks need workspace trust.</p></li>
+            <li><h3>Keep the parent model selected.</h3><p>Ask the skill to use its scripted worker with explicit inputs. Do not switch with <code>/agent</code> and call that delegation. Native named agents remain instruction-only alternatives, without the scripted guarantees or measured accounting.</p></li>
+          </ol>
+          <div><div class="terminal-card"><div class="terminal-header"><span class="terminal-title">Project install</span><button class="copy-code-btn scene-btn" type="button" data-target="setup-commands" hidden>Copy</button></div><pre id="setup-commands" tabindex="0" aria-label="Project installation commands, horizontally scrollable"><code>git clone https://github.com/brianbaldock/TokenReducer.git
+cd TokenReducer
+node scripts/install.mjs --project /path/to/workspace</code></pre></div><details class="personal-install"><summary>Use a personal install instead</summary><pre tabindex="0" aria-label="Personal installation command, horizontally scrollable"><code>node scripts/install.mjs --personal</code></pre><p>Run from the TokenReducer source directory. Personal hook paths are absolute and quoted. Both Bash and PowerShell launchers are included.</p></details></div>
+        </div>
+        <div class="command-grid"><article><span class="section-tag">Contracts</span><h3><code>npm test</code></h3><p>Deterministic regression checks.</p></article><article><span class="section-tag">Scenarios</span><h3><code>npm run eval</code></h3><p>Offline fixture workflows.</p></article><article><span class="section-tag">Accounting</span><h3><code>npm run benchmark</code></h3><p>Reproducible parent-input proxies.</p></article><article><span class="section-tag">Optional live</span><h3><code>npm run eval:live</code></h3><p>Requires supported authentication and available models.</p></article></div>
+        <p class="sr-only" id="copy-status" role="status"></p>
+      </div>
+    </section>
+
+    <section class="prior-art-section" id="prior-art" aria-labelledby="prior-title">
+      <div class="container">
+        <div class="section-head"><p class="section-tag">06 / Research lineage</p><h2 class="section-title" id="prior-title">Original implementation. Visible credit.</h2><p class="section-desc">This experiment builds on others' research about model choice, context selection, and agent interfaces. These works motivate the questions; they do not prove TokenReducer's results.</p></div>
+        <aside class="attribution-statement"><p><span class="pill-note">DIRECT REFERENCE</span> <a href="https://github.com/spotify/portal-ai-plugins/tree/main/plugins/shunt"><strong>Spotify shunt</strong></a> provides a public reference for moving suitable work away from a main agent. TokenReducer is an original, Copilot-native implementation using skills, a line gate, and scripted CLI workers. It is not a source port and is not Portal or AiKA.</p></aside>
+        <div class="prior-art-grid">
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://arxiv.org/abs/2305.05176">FrugalGPT</a></h3><p class="prior-source">TMLR, 2024 / Model cascades</p></div><p class="prior-desc">Explores LLM cascades and cost-quality tradeoffs.</p><p class="prior-relevance"><strong>Distinction:</strong> Task-specific worker defaults are not FrugalGPT's learned cascade strategy.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://arxiv.org/abs/2406.18665">RouteLLM</a></h3><p class="prior-source">arXiv:2406.18665 / Routing</p></div><p class="prior-desc">Studies stronger/weaker model routing using preference data.</p><p class="prior-relevance"><strong>Distinction:</strong> This project does not train a router or reproduce its quality-cost curves.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://arxiv.org/abs/2310.12963">AutoMix</a></h3><p class="prior-source">arXiv:2310.12963 / Verification</p></div><p class="prior-desc">Explores self-verification and model mixing.</p><p class="prior-relevance"><strong>Distinction:</strong> Deterministic transport checks are not AutoMix's answer-verification algorithm.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://arxiv.org/abs/2310.05736">LLMLingua</a></h3><p class="prior-source">arXiv:2310.05736 / Compression</p></div><p class="prior-desc">Compresses prompts to reduce inference overhead.</p><p class="prior-relevance"><strong>Distinction:</strong> TokenReducer routes full source and returns compact evidence; it does not implement token-level prompt compression.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://arxiv.org/abs/2310.06839">LongLLMLingua</a></h3><p class="prior-source">arXiv:2310.06839 / Long context</p></div><p class="prior-desc">Studies question-aware long-context compression.</p><p class="prior-relevance"><strong>Distinction:</strong> It informs a context-selection question, not this implementation's mechanics or accounting.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://aclanthology.org/2024.tacl-1.9/">Lost in the Middle</a></h3><p class="prior-source">TACL, 2024 / Position effects</p></div><p class="prior-desc">Shows that information position can affect long-context performance.</p><p class="prior-relevance"><strong>Distinction:</strong> It motivates care with context, not a claim of better reasoning here.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://arxiv.org/abs/2405.15793">SWE-agent</a></h3><p class="prior-source">arXiv:2405.15793 / Agent interfaces</p></div><p class="prior-desc">Examines agent-computer interfaces for software engineering.</p><p class="prior-relevance"><strong>Distinction:</strong> Tool boundaries are a design choice here; the project does not implement SWE-agent.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://aider.chat/docs/repomap.html">Aider repository map</a></h3><p class="prior-source">Aider documentation / Code context</p></div><p class="prior-desc">Provides a compact repository representation to focus code context.</p><p class="prior-relevance"><strong>Distinction:</strong> Explicit files and worker answers are not Aider's repository map or symbol-graph algorithm.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://www.anthropic.com/research/building-effective-agents">Building Effective Agents</a></h3><p class="prior-source">Anthropic / Workflow patterns</p></div><p class="prior-desc">Describes practical routing and orchestrator-worker arrangements.</p><p class="prior-relevance"><strong>Distinction:</strong> A useful design reference, not a certification of this runtime.</p></article>
+          <article class="prior-card"><div class="prior-header"><h3 class="prior-name"><a href="https://arxiv.org/abs/2512.24601">Recursive Language Models</a></h3><p class="prior-source">arXiv:2512.24601 / Decomposition</p></div><p class="prior-desc">Explores programmatic access to large contexts and recursive model calls at inference time.</p><p class="prior-relevance"><strong>Distinction:</strong> TokenReducer uses bounded one-job workers, not that algorithm or recursive training.</p></article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-col"><h2>Static by design</h2><p>This website has no uploads, backend, analytics, or application data retention. The scene uses invented geometry. No personal or project content is sent by the application; calculator inputs stay in page memory.</p><p>Enabling 3D fetches the pinned Three.js module. GitHub Pages and CDN requests follow their providers' policies. Hosting handles request limits; there is no user API. <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub privacy</a> / <a href="https://www.jsdelivr.com/terms/privacy-policy">jsDelivr privacy</a>.</p></div>
+        <nav class="footer-col" aria-label="Project links"><h2>Project</h2><ul class="footer-links"><li><a href="https://github.com/brianbaldock/TokenReducer">GitHub repository</a></li><li><a href="https://github.com/brianbaldock/TokenReducer#readme">README &amp; setup</a></li><li><a href="https://brianbaldock.github.io/TokenReducer/">GitHub Pages</a></li><li><a href="https://github.com/brianbaldock/TokenReducer/blob/main/LICENSE">MIT License / Brian Baldock 2026</a></li><li><a href="#prior-art">Research &amp; prior art</a></li><li><a href="#overview">Back to overview</a></li></ul></nav>
+        <div class="footer-col"><h2>Evidence &amp; dependency</h2><ul class="footer-links"><li data-evidence="regression-count">Contract tests: 456/456 passed</li><li>Accounting: character proxy, not a tokenizer</li><li>Optional 3D: <a href="https://github.com/mrdoob/three.js/tree/r170">Three.js 0.170.0 / r170</a></li><li><a href="https://github.com/mrdoob/three.js/blob/r170/LICENSE">Three.js MIT license</a></li><li>One pinned CDN; no external fonts or trackers</li></ul></div>
+      </div>
+      <div class="footer-bottom"><span>TokenReducer / Original Copilot-native experiment.</span><span>Source still processed. Parent input reduced in the scripted comparison.</span></div>
+    </div>
+  </footer>
+</body>
+</html>

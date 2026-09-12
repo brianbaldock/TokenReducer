@@ -1,0 +1,17 @@
+{
+  "name": "tokenreducer",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Copilot skills, hooks, and isolated workers that keep bulk bytes out of the parent context.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node evals/run.mjs --tests-only",
+    "eval": "node evals/run.mjs",
+    "benchmark": "node evals/benchmark.mjs",
+    "eval:live": "node evals/live.mjs"
+  }
+}
