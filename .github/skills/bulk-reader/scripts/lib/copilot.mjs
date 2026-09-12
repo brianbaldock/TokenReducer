@@ -78,6 +78,7 @@ function cliFailure(diagnostics) {
 }
 
 export function parseResponse(stdout, requestedModel) {
+  const requested = modelName(requestedModel);
   let answer;
   let errorMessage;
   const observedModels = new Set();
@@ -101,8 +102,9 @@ export function parseResponse(stdout, requestedModel) {
     throw cliFailure(errorMessage);
   }
   if (observedModels.size === 0) throw new InputError('MODEL', 'Copilot did not report the worker model; output was withheld.');
-  if ([...observedModels].some((model) => model !== requestedModel)) {
-    throw new InputError('MODEL', 'Copilot switched away from the requested worker model; output was withheld.');
+  const unexpectedModel = [...observedModels].find((model) => model !== requested);
+  if (unexpectedModel !== undefined) {
+    throw new InputError('MODEL', `Copilot reported worker model ${modelName(unexpectedModel)}; requested ${requested}. Output was withheld.`);
   }
   if (typeof answer !== 'string' || !answer.trim()) throw new InputError('EMPTY_ANSWER', 'Copilot returned no nonempty final answer.');
   return answer;

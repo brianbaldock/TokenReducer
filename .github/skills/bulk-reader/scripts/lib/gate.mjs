@@ -29,7 +29,7 @@ function readWindow(args) {
   return { offset: args.offset ?? 0, limit: args.limit };
 }
 
-function inspectFile(cwd, file, threshold, deadline, offset = 0) {
+function inspectFile(cwd, file, threshold, deadline, { offset = 0, limit, bytes = false, fromEnd = false } = {}) {
   const candidate = path.resolve(cwd, pathText(file));
   let resolved;
   try {
@@ -51,18 +51,23 @@ function inspectFile(cwd, file, threshold, deadline, offset = 0) {
     let lines = 0;
     let scanned = 0;
     let lastByte = -1;
-    while (true) {
+    const lineOffset = bytes ? 0 : offset;
+    let position = bytes ? (fromEnd ? Math.max(info.size - limit, 0) : offset) : null;
+    let remaining = bytes ? limit ?? Infinity : Infinity;
+    while (remaining > 0) {
       if (Date.now() > deadline || scanned >= 8 * 1024 * 1024) return 'Line counting exceeded the gate scan budget.';
-      const size = readSync(descriptor, buffer, 0, buffer.length, null);
+      const size = readSync(descriptor, buffer, 0, Math.min(buffer.length, remaining), position);
       if (!size) break;
       scanned += size;
+      remaining -= size;
+      if (position !== null) position += size;
       lastByte = buffer[size - 1];
       for (let index = 0; index < size; index++) {
-        if (buffer[index] === 10 && ++lines - offset > threshold) return `Read exceeds ${threshold} lines.`;
+        if (buffer[index] === 10 && ++lines - lineOffset > threshold) return `Read exceeds ${threshold} lines.`;
       }
     }
     if (lastByte !== -1 && lastByte !== 10) lines++;
-    return lines - offset > threshold ? `Read exceeds ${threshold} lines.` : null;
+    return lines - lineOffset > threshold ? `Read exceeds ${threshold} lines.` : null;
   } finally {
     closeSync(descriptor);
   }
@@ -89,14 +94,15 @@ export function evaluateHook(input, env = process.env) {
     const file = pathText(args.path);
     const window = readWindow(args);
     if (window.limit !== undefined && window.limit <= threshold) return passThrough();
-    const reason = inspectFile(cwd, file, threshold, Date.now() + 1500, window.offset);
+    const reason = inspectFile(cwd, file, threshold, Date.now() + 1500, window);
     return reason ? deny(reason) : passThrough();
   }
   const inspected = inspectShell(args.command, input.toolName === 'powershell');
   if (inspected.ambiguous) return deny('Ambiguous full-dump command; use explicit paths or a bounded read.');
   const deadline = Date.now() + 1500;
-  for (const file of inspected.paths) {
-    const reason = inspectFile(cwd, file, threshold, deadline);
+  for (const { path: file, ...window } of inspected.paths) {
+    if (window.limit !== undefined && window.limit <= threshold) continue;
+    const reason = inspectFile(cwd, file, threshold, deadline, window);
     if (reason) return deny(reason);
   }
   return passThrough();

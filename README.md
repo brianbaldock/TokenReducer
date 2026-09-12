@@ -137,7 +137,7 @@ npm run eval
 npm run benchmark
 ```
 
-Local run on 2026-09-12: **456 TAP tests passed, 0 failed, 0 skipped**.
+Local run on 2026-09-12: **545 TAP tests passed, 0 failed, 0 skipped**.
 `npm test` runs the contract suite. `npm run eval` runs that suite plus the
 deterministic stub-worker benchmark. `npm run benchmark` runs only the accounting
 experiment. The local macOS run included the PowerShell launcher; environments
@@ -150,7 +150,7 @@ not a tokenizer, a live-model accuracy grade, or a billing API. The baseline
 ingests the whole corpus into the parent. The scripted path returns only compact
 stdout and coarse metadata.
 
-| Case | Parent before | Parent after | Reduction |
+| Case | Parent before (estimated tokens, chars/4) | Parent after (estimated tokens, chars/4) | Reduction |
 |---|---:|---:|---:|
 | One large-file question | 30,915 | 858 | 97.23% |
 | Multi-file question | 62,455 | 893 | 98.57% |
@@ -159,7 +159,7 @@ stdout and coarse metadata.
 Both sides include actual skill text, invocation text, and a fixed
 1,024-character delegation allowance. Before also includes the corpus and
 answer or generated body. After includes the compact reply and metadata.
-Generation reserves another 512 parent tokens for bounded review.
+Generation reserves another 512 estimated parent tokens for bounded review.
 Percentages use character totals before rounding token estimates.
 
 Worker input is not eliminated: the three payload estimates are 31,586, 64,460,
@@ -171,7 +171,7 @@ Coarse numeric evidence is saved in [evals/results/benchmark.json](evals/results
 <details>
 <summary>Earlier stub snapshot, before the current skill wording</summary>
 
-| Case | Parent before | Parent after | Reduction |
+| Case | Parent before (estimated tokens, chars/4) | Parent after (estimated tokens, chars/4) | Reduction |
 |---|---:|---:|---:|
 | One large-file question | 30,850 | 793 | 97.43% |
 | Multi-file question | 62,390 | 828 | 98.67% |
@@ -225,8 +225,13 @@ ceiling; an unclassifiable large read is denied.
 
 The shell recognizer checks known full-dump forms such as `cat`, pagers,
 unbounded `sed`/`awk`, and PowerShell `Get-Content` without executing the command.
-Pipes, stdout redirection, bounded shell forms, and search output are outside this
-line-budget enforcement. A pipe can still print everything. This is a routing
+Recognized numeric windows in `head`, `tail`, `sed`, `awk`, `bat`, and
+`Get-Content` use the same line threshold as `view`. A large count is not an
+exemption. `tail -n +2` is an EOF suffix: on a 701-line file it exposes 700
+lines and is denied, while `tail -n +352` exposes 350 and passes.
+Byte-count forms count the lines in their selected byte window.
+Pipes, stdout redirection, and search output remain outside this line-budget
+enforcement. A pipe can still print everything. This is a routing
 guardrail, **not a sandbox or DLP**.
 
 The scripted adapter validates explicit paths, loads the work order, and pipes
@@ -239,7 +244,7 @@ profile.
 The adapter requires a matching model report in JSONL. Missing model evidence,
 any mismatched report, a tool attempt, malformed output, or a session error
 withholds the answer and generated target. Only explicit model unavailability
-can retry the configured cheap fallback.
+can retry `gpt-5-mini`; the coordinator's selection is unchanged.
 
 Inputs must be regular UTF-8 files inside `--root`; input symlinks cannot escape
 it. The writer requires a reference. Target directories must already exist and
@@ -248,7 +253,7 @@ are rejected. Successful writes are atomic, with private permissions for new
 files on Unix.
 
 Compact answers and code without a target are capped at 4,096 UTF-8 bytes.
-Generated disk output is capped at 1 MiB. Outer code fences are stripped, and
+Generated disk output is capped at 1 MiB. Outer fences are stripped only from code-writer output, and
 failures return no partial answer. With a target, stdout contains only
 `written`, `bytes`, and `model`; stderr contains coarse model/byte metadata,
 not the child's transcript.
@@ -292,8 +297,8 @@ official CLI and supported authentication in that job.
 
 These are Copilot model IDs, not external provider endpoints. Model availability,
 plan limits, and prices vary. No classifier model is needed for the gate.
-An override is your explicit cost choice; automatic fallback never selects the
-coordinator or a frontier model. `auto` is rejected.
+An override is your explicit cost choice. Automatic fallback uses only
+`gpt-5-mini`; the coordinator's selection is unchanged. `auto` is rejected.
 
 | Environment variable | Default | Meaning |
 |---|---|---|

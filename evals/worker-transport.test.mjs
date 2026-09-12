@@ -115,6 +115,28 @@ test('JSONL answers require explicit matching model evidence throughout the resp
   }
 });
 
+test('model mismatch diagnostics identify the observed and requested IDs without transcript content', async (t) => {
+  const requested = 'gpt-5-mini';
+  const transcript = (observed) => [
+    JSON.stringify({ type: 'assistant.usage', data: { model: observed } }),
+    JSON.stringify({ type: 'assistant.message', data: { content: 'PRIVATE_ANSWER_MUST_NOT_ESCAPE' } }),
+  ].join('\n');
+  assert.throws(() => parseResponse(transcript('unrequested-model'), requested), {
+    code: 'MODEL',
+    message: 'Copilot reported worker model unrequested-model; requested gpt-5-mini. Output was withheld.',
+  });
+  for (const observed of ['bad\nPRIVATE_DIAGNOSTIC', 'bad\u001b[31m', 'x'.repeat(81), 'bad model ID']) {
+    await t.test(`malformed model of length ${observed.length}`, () => {
+      assert.throws(() => parseResponse(transcript(observed), requested), (error) => {
+        assert.equal(error.code, 'MODEL');
+        assert.equal(error.message.includes(observed), false);
+        assert.equal(error.message.includes('PRIVATE_ANSWER'), false);
+        return true;
+      });
+    });
+  }
+});
+
 test('second questions resend identical complete paths into a new isolated process without first-question history', async (t) => {
   const { root } = await workspace(t, 'resend');
   const fixtures = FIXTURES.slice(0, 2);
@@ -237,6 +259,9 @@ test('auth, generic, CLI-version, protocol, and model-integrity failures never f
       assertFailure(result, code);
       assert.equal((await observations(root)).length, 1, 'Only explicit model unavailability may retry.');
       assert.equal(await exists(path.join(root, 'generated.mjs')), false);
+      if (mode === 'wrong-model' || mode === 'wrong-then-right-model') {
+        assert.match(result.stderr, /reported worker model unrequested-eval-model; requested gpt-5\.4-mini/);
+      }
       for (const sentinel of ['STUB_PRIVATE_DIAGNOSTIC', 'STUB_PARTIAL_ANSWER_MUST_NOT_ESCAPE', 'STUB_INVALID_TRANSCRIPT_NOT_JSON']) {
         assert.equal(result.stderr.includes(sentinel), false);
       }

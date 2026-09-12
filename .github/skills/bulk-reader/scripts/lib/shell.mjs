@@ -76,8 +76,15 @@ function commandName(value) {
   return value.replaceAll('\\', '/').split('/').at(-1).replace(/\.(exe|com)$/i, '').toLowerCase();
 }
 
+function lineWindow(start, end) {
+  if (!Number.isSafeInteger(start) || start < 1
+      || (end !== undefined && (!Number.isSafeInteger(end) || end < start))) return null;
+  return { offset: start - 1, limit: end === undefined ? undefined : end - start + 1 };
+}
+
 function dumpOperands(name, words) {
-  let bounded = name === 'head' || name === 'tail';
+  let window = name === 'head' || name === 'tail' ? { limit: 10 } : {};
+  let hasRange = false;
   let script;
   let quiet = false;
   let endOptions = false;
@@ -102,8 +109,8 @@ function dumpOperands(name, words) {
       if (name === 'get-content' || name === 'gc') {
         if (['-totalcount', '-head', '-first', '-tail', '-last'].includes(lower)) {
           const value = words[++i];
-          if (!value || value.dynamic || !/^\d+$/.test(value.text)) return null;
-          bounded = true;
+          if (!value || value.dynamic || !/^\d+$/.test(value.text) || !Number.isSafeInteger(Number(value.text))) return null;
+          window = { limit: Number(value.text) };
           continue;
         }
         if (['-path', '-literalpath'].includes(lower)) continue;
@@ -112,21 +119,36 @@ function dumpOperands(name, words) {
       if (name === 'bat' || name === 'batcat') {
         const range = text.match(/^(?:--line-range=|-r)(\d+):(\d+)$/);
         if (range || text === '--line-range' || text === '-r') {
-          const value = range ? `${range[1]}:${range[2]}` : words[++i]?.text;
-          if (!value || !/^\d+:\d+$/.test(value)) return null;
-          bounded = true;
+          const value = range ? { text: `${range[1]}:${range[2]}` } : words[++i];
+          if (hasRange || !value || value.dynamic || !/^\d+:\d+$/.test(value.text)) return null;
+          window = lineWindow(...value.text.split(':').map(Number));
+          if (!window) return null;
+          hasRange = true;
           continue;
         }
       }
       if (name === 'head' || name === 'tail') {
         const count = text.match(/^(?:--(?:lines|bytes)=|-[nc])([+-]?\d+)$/);
         if (count || ['-n', '-c', '--lines', '--bytes'].includes(text)) {
-          const value = count?.[1] ?? words[++i]?.text;
-          if (!value || !/^[+-]?\d+$/.test(value)) return null;
-          bounded = name === 'tail' ? !value.startsWith('+') || Number(value) > 1 : !value.startsWith('-');
+          const value = count ? { text: count[1] } : words[++i];
+          if (!value || value.dynamic || !/^[+-]?\d+$/.test(value.text) || !Number.isSafeInteger(Number(value.text))) return null;
+          const bytes = text.startsWith('-c') || text.startsWith('--bytes');
+          if (name === 'head' && value.text.startsWith('-')) {
+            window = {};
+          } else if (name === 'tail' && value.text.startsWith('+')) {
+            window = { offset: Math.max(Number(value.text) - 1, 0), bytes };
+          } else {
+            window = { limit: Math.abs(Number(value.text)), bytes, fromEnd: bytes && name === 'tail' };
+          }
           continue;
         }
-        if (/^-\d+$/.test(text) || /^-[qvfF]+$/.test(text) || ['--quiet', '--verbose'].includes(text)) continue;
+        if (/^-\d+$/.test(text)) {
+          const limit = Number(text.slice(1));
+          if (!Number.isSafeInteger(limit)) return null;
+          window = { limit };
+          continue;
+        }
+        if (/^-[qvfF]+$/.test(text) || ['--quiet', '--verbose'].includes(text)) continue;
       }
       if (name === 'sed') {
         if (text === '-n' || text === '--quiet' || text === '--silent') {
@@ -155,14 +177,24 @@ function dumpOperands(name, words) {
       if (text !== '-') paths.push(text);
     }
   }
-  if (name === 'sed') {
-    bounded = quiet && /^(?:\d+(?:,\d+)?p|\d+,\$p)$/.test(script ?? '')
-      && (!script.includes('$') || Number(script.split(',')[0]) > 1);
+  if (name === 'sed' && quiet) {
+    const range = (script ?? '').match(/^(\d+)(?:,(\d+|\$))?p$/);
+    if (range) {
+      window = lineWindow(Number(range[1]), range[2] === '$' ? undefined : Number(range[2] ?? range[1]));
+      if (!window) return null;
+    }
   }
   if (name === 'awk') {
-    bounded = /^(?:NR\s*(?:<=|==)\s*\d+|NR\s*>=\s*\d+\s*&&\s*NR\s*<=\s*\d+)(?:\s*\{\s*print(?:\s+\$0)?\s*\})?$/.test(script ?? '');
+    const range = (script ?? '').match(/^NR\s*(?:(<=|==)\s*(\d+)|>=\s*(\d+)\s*&&\s*NR\s*<=\s*(\d+))(?:\s*\{\s*print(?:\s+\$0)?\s*\})?$/);
+    if (range) {
+      const start = range[1] === '==' ? Number(range[2]) : Math.max(Number(range[3] ?? 1), 1);
+      const end = Number(range[2] ?? range[4]);
+      if (![start, end].every(Number.isSafeInteger)) return null;
+      window = end < start || end === 0 ? { limit: 0 } : lineWindow(start, end);
+      if (!window) return null;
+    }
   }
-  return { bounded, paths };
+  return { window, paths };
 }
 
 function inspectCommand(tokens, powershell, depth) {
@@ -217,7 +249,11 @@ function inspectCommand(tokens, powershell, depth) {
   if (words[0] && ['--help', '--version'].includes(words[0].text) && !words[0].dynamic) return { paths: [] };
   const result = dumpOperands(name, words);
   if (!result) return { ambiguous: true };
-  return { paths: result.bounded ? [] : [...result.paths, ...inputPaths] };
+  const paths = [...result.paths, ...inputPaths];
+  // sed and awk share line numbers across operands, unlike per-file head/tail windows.
+  const window = ['sed', 'awk'].includes(name) && paths.length > 1
+    ? { ...result.window, offset: 0 } : result.window;
+  return { paths: paths.map((file) => ({ path: file, ...window })) };
 }
 
 export function inspectShell(command, powershell = false, depth = 0) {
