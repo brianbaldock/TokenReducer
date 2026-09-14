@@ -9,13 +9,58 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'none'">
   <title>TokenReducer | An experiment in context placement</title>
   <meta name="description" content="An original Copilot-native experiment: route source-reading work to a separate worker and return compact evidence to the parent. Explore its contracts, accounting, and limits.">
-  <meta property="og:title" content="TokenReducer: more room for judgment">
+  <meta name="robots" content="index,follow">
+  <meta property="og:title" content="TokenReducer | An experiment in context placement">
   <meta property="og:description" content="A walkthrough of context gating and separate workers. The source is still processed. Less of it enters the parent.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://brianbaldock.github.io/TokenReducer/">
+  <meta property="og:image" content="https://brianbaldock.github.io/TokenReducer/assets/og-image.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="TokenReducer, an experimental Copilot CLI tool. Full source goes to a worker; compact evidence returns to the parent.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="TokenReducer | An experiment in context placement">
+  <meta name="twitter:description" content="An original Copilot-native experiment: route source-reading work to a separate worker and return compact evidence to the parent. Explore its contracts, accounting, and limits.">
+  <meta name="twitter:image" content="https://brianbaldock.github.io/TokenReducer/assets/og-image.png">
+  <meta name="twitter:image:alt" content="TokenReducer, an experimental Copilot CLI tool. Full source goes to a worker; compact evidence returns to the parent.">
   <link rel="canonical" href="https://brianbaldock.github.io/TokenReducer/">
   <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./assets/styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "@id": "https://brianbaldock.github.io/TokenReducer/",
+        "url": "https://brianbaldock.github.io/TokenReducer/",
+        "name": "TokenReducer | An experiment in context placement",
+        "description": "An original Copilot-native experiment: route source-reading work to a separate worker and return compact evidence to the parent. Explore its contracts, accounting, and limits.",
+        "inLanguage": "en",
+        "mainEntity": { "@id": "https://github.com/brianbaldock/TokenReducer" },
+        "primaryImageOfPage": {
+          "@type": "ImageObject",
+          "url": "https://brianbaldock.github.io/TokenReducer/assets/og-image.png",
+          "width": 1200,
+          "height": 630
+        }
+      },
+      {
+        "@type": "SoftwareSourceCode",
+        "@id": "https://github.com/brianbaldock/TokenReducer",
+        "name": "TokenReducer",
+        "description": "An experimental Copilot CLI tool with a read gate and isolated workers for bulk file reading and reference-based code generation.",
+        "url": "https://github.com/brianbaldock/TokenReducer",
+        "codeRepository": "https://github.com/brianbaldock/TokenReducer",
+        "license": "https://spdx.org/licenses/MIT.html",
+        "programmingLanguage": "JavaScript",
+        "runtimePlatform": "Node.js 20 or later; GitHub Copilot CLI",
+        "author": { "@type": "Person", "name": "Brian Baldock" }
+      }
+    ]
+  }
+  </script>
   <script type="module" src="./assets/app.js"></script>
 </head>
 <body>
