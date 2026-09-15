@@ -61,7 +61,7 @@ async function readerCase(fixtures, label) {
     const result = await runWorker('bulk-reader', args, { root: work.root });
     assertSuccess(result);
     assert.deepEqual(JSON.parse(result.stdout), { provenance: 'STUB', files: expectedAnchors(fixtures) });
-    const summary = metadata(result, { kind: 'bulk-reader', model: 'claude-haiku-4.5', attempts: 1 });
+    const summary = metadata(result, { kind: 'bulk-reader', model: 'eval-reader-model', attempts: 1 });
     const records = await observations(work.root);
     assert.equal(records.length, 1);
     assert.deepEqual(records[0].contractErrors, []);
@@ -109,7 +109,7 @@ async function generatorCase() {
     assert.equal(confirmation.bytes, Buffer.byteLength(body));
     assert.equal(result.stdout.includes('export '), false);
     assert.equal(result.stdout.includes('generatedReadings'), false);
-    const summary = metadata(result, { kind: 'code-writer', model: 'gpt-5.4-mini', attempts: 1 });
+    const summary = metadata(result, { kind: 'code-writer', model: 'eval-writer-model', attempts: 1 });
     const records = await observations(work.root);
     assert.equal(records.length, 1);
     assert.equal(summary.inputBytes, records[0].payloadBytes);

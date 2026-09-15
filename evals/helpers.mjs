@@ -159,7 +159,11 @@ export async function runWorker(kind, args, { root, cwd = root, env = {}, timeou
   assert.ok(root, 'A contained evaluation workspace root is required.');
   const result = await runProcess(process.execPath, [ENTRIES[kind], ...args], {
     cwd, timeoutMs,
-    env: processEnvironment(root, { ...env, TOKENREDUCER_COPILOT_BIN: STUB }),
+    env: processEnvironment(root, {
+      TOKENREDUCER_BULK_READER_MODEL: 'eval-reader-model',
+      TOKENREDUCER_CODE_WRITER_MODEL: 'eval-writer-model',
+      ...env, TOKENREDUCER_COPILOT_BIN: STUB,
+    }),
   });
   return { ...result, stubContractErrors: (await observations(root)).at(-1)?.contractErrors ?? [] };
 }
@@ -190,7 +194,7 @@ export function assertFailure(result, code) {
 }
 
 export function metadata(result, { kind, model, attempts } = {}) {
-  const match = result.stderr.match(/^TokenReducer worker=(bulk-reader|code-writer) model=([a-z0-9.-]+) attempts=(\d+) input_bytes=(\d+) output_bytes=(\d+)\n$/);
+  const match = result.stderr.match(/^TokenReducer worker=(bulk-reader|code-writer) model=([a-z0-9._:/+-]+) attempts=(\d+) input_bytes=(\d+) output_bytes=(\d+)\n$/i);
   assert.ok(match, 'Successful stderr must be exactly one coarse worker metadata line.');
   const parsed = { kind: match[1], model: match[2], attempts: Number(match[3]), inputBytes: Number(match[4]), outputBytes: Number(match[5]) };
   if (kind !== undefined) assert.equal(parsed.kind, kind);

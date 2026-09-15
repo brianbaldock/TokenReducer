@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { InputError, safeFailure, workerConfig } from '../.github/skills/bulk-reader/scripts/lib/config.mjs';
 import { pathText, prepareTarget, writeTarget } from '../.github/skills/bulk-reader/scripts/lib/files.mjs';
+import { setup } from '../.github/skills/bulk-reader/scripts/lib/setup.mjs';
 
 const product = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bashQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -37,6 +38,7 @@ async function ensureDirectories(root, relative) {
 }
 
 export async function install(args, env = process.env) {
+  if (args.includes('--setup')) return setup(args.filter((arg) => arg !== '--setup'), env);
   const { values } = parseArgs({
     args, strict: true, allowPositionals: false,
     options: {
@@ -45,7 +47,7 @@ export async function install(args, env = process.env) {
     },
   });
   if (values.help) {
-    return 'node scripts/install.mjs --project DIR | --personal [--home DIR] [--overwrite]\nExisting different files require --overwrite. Native agent models use the worker environment overrides.';
+    return 'node scripts/install.mjs --project DIR | --personal [--home DIR] [--overwrite]\nnode scripts/install.mjs --setup [--reader MODEL --writer MODEL] [--fallback MODEL] [--alias REQUESTED=REPORTED]\nExisting different files require --overwrite. Native agent models use saved configuration, with environment overrides taking precedence.';
   }
   if (Boolean(values.project) === Boolean(values.personal) || (values.home && !values.personal)) {
     throw new InputError('INSTALL', 'Choose --project DIR or --personal. --home is only valid with --personal.');
@@ -65,7 +67,8 @@ export async function install(args, env = process.env) {
   for (const name of ['bulk-reader', 'code-writer']) {
     models[name] = workerConfig(name, env).models[0];
     const profile = await readFile(path.join(product, '.github', 'agents', `${name}.agent.md`), 'utf8');
-    files.set(path.join(base, 'agents', `${name}.agent.md`), profile.replace(/^model: .+$/m, `model: ${models[name]}`));
+    const yamlModel = models[name].includes(':') ? JSON.stringify(models[name]) : models[name];
+    files.set(path.join(base, 'agents', `${name}.agent.md`), profile.replace(/^model: .+$/m, `model: ${yamlModel}`));
   }
   const hook = JSON.parse(await readFile(path.join(product, '.github', 'hooks', 'tokenreducer.json'), 'utf8'));
   if (values.personal) {

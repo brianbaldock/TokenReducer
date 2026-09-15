@@ -27,6 +27,7 @@ Clone this repo, then install into an existing workspace:
 ```sh
 git clone https://github.com/brianbaldock/TokenReducer.git
 cd TokenReducer
+node scripts/setup.mjs
 node scripts/install.mjs --project /path/to/workspace
 ```
 
@@ -52,6 +53,49 @@ Both skills must be installed together. Identical files are left alone.
 Differing files require `--overwrite` after review. Unrelated hooks, skills,
 agents, and instruction files are not replaced. The optional
 `.github/copilot-instructions.md` in this repo is not installed into other projects.
+
+### First-run model setup
+
+Run `node scripts/setup.mjs` from this checkout before using either worker.
+`node scripts/install.mjs --setup` is an alias for setup only. In a terminal,
+setup offers numbered reader and writer choices when discovery finds IDs, or
+accepts typed IDs. Choose cheap/fast models explicitly. Nothing is selected
+automatically, and `auto` is rejected.
+
+Discovery runs the current `copilot --help` and reads the `--model` choices only
+if the CLI publishes them. It does not infer a catalog from example commands or
+make an inference request. Some CLI versions, including 1.0.84-4, document only
+an interactive `/model` picker and publish no choices in help. Missing CLI,
+discovery failure, or an empty catalog falls back to manual selection, not a
+guessed model. In non-interactive environments, supply both IDs:
+
+```sh
+node scripts/setup.mjs --reader reader-id --writer writer-id
+# Optional explicit fallback and an alternate reported spelling:
+node scripts/setup.mjs --reader reader-id --writer writer-id \
+  --fallback fallback-id --alias writer-id=reported-writer-id
+```
+
+Replace those placeholders with IDs accepted by the worker's inference host.
+Setup is independent of the launch directory, VS Code, other IDEs, Copilot CLI,
+and the GitHub Copilot app. It saves a user file, not a host-specific preference.
+CLI discovery is only a suggestion for other hosts: their IDs, catalogs, and
+model-report spellings can differ. A CLI ID is not necessarily a VS Code ID.
+Scripted workers still require the official CLI for inference, regardless of
+where they are launched. Native workers use their own host's routing.
+
+The file is `~/.config/tokenreducer/models.json`, or
+`$XDG_CONFIG_HOME/tokenreducer/models.json` when set. On Windows the default
+home is `%USERPROFILE%`. Setup atomically replaces the file with mode `0600`
+on Unix. It contains model IDs, optional aliases/discovery provenance, and an
+update timestamp, never credentials. Each setup run replaces prior choices,
+including any fallback and aliases. Remote or container environments need their
+own setup or environment overrides.
+
+Without a configured model, a scripted invocation fails with `TokenReducer SETUP`
+and a setup command before starting inference. For an installed copy without
+this source checkout, run `node <bulk-reader-skill-directory>/scripts/setup.mjs`.
+The environment overrides below still work without running setup.
 
 ### Personal install
 
@@ -241,10 +285,11 @@ history, custom instructions, plugins, and MCP configuration out of that process
 The supported `shell`, `write`, and `url` denial rules complement the tool-free
 profile.
 
-The adapter requires a matching model report in JSONL. Missing model evidence,
-any mismatched report, a tool attempt, malformed output, or a session error
-withholds the answer and generated target. Only explicit model unavailability
-can retry `gpt-5-mini`; the coordinator's selection is unchanged.
+The adapter requires a matching model report in JSONL, ignoring case and allowing
+only explicitly saved aliases. Missing model evidence, any unmatched report, a
+tool attempt, malformed output, or a session error withholds the answer and
+generated target. Only explicit model unavailability can retry a configured,
+different fallback ID; the coordinator's selection is unchanged.
 
 Inputs must be regular UTF-8 files inside `--root`; input symlinks cannot escape
 it. The writer requires a reference. Target directories must already exist and
@@ -292,26 +337,53 @@ official CLI and supported authentication in that job.
 | Role | Default | Unavailable-model fallback |
 |---|---|---|
 | Coordinator | Your selected session model | Never changed by TokenReducer |
-| Bulk reader | `claude-haiku-4.5` | `gpt-5-mini` |
-| Code writer | `gpt-5.4-mini` | `gpt-5-mini` |
+| Bulk reader | Setup required, or environment override | Configured `fallback` only, otherwise none |
+| Code writer | Setup required, or environment override | Configured `fallback` only, otherwise none |
 
-These are Copilot model IDs, not external provider endpoints. Model availability,
-plan limits, and prices vary. No classifier model is needed for the gate.
-An override is your explicit cost choice. Automatic fallback uses only
-`gpt-5-mini`; the coordinator's selection is unchanged. `auto` is rejected.
+Model availability, plan limits, and prices vary by inference host. An explicit
+model or fallback is your cost choice. There is no universal fallback or automatic
+escalation to a frontier model. No classifier model is needed for the gate.
+`auto` is rejected, including in aliases.
+
+Example saved configuration using placeholder IDs:
+
+```json
+{
+  "reader": "reader-id",
+  "writer": "writer-id",
+  "fallback": "fallback-id",
+  "aliases": {
+    "writer-id": ["reported-writer-id"]
+  },
+  "updatedAt": "2026-09-15T00:00:00.000Z"
+}
+```
+
+`fallback`, `aliases`, and `discoveredFrom` are optional. `discoveredFrom` records
+the CLI help source when it lists choices, not proof of access to a chosen model.
+Aliases map a **requested ID to an array of reported IDs**, case-insensitively.
+They are directional, not transitive, and do not rewrite the requested ID sent to
+the host. For example, `--alias gpt-5.4-mini=gpt-5-4-mini` permits that specific
+reported spelling only after you save it. No punctuation normalization or alias
+is built in. Only map spellings known to identify the same model, never a different
+model tier. Unrecognized reports still withhold output without fallback.
 
 | Environment variable | Default | Meaning |
 |---|---|---|
 | `TOKENREDUCER_LINE_THRESHOLD` | `350` | Maximum lines in a classified read; configurable from 1 to 100,000 |
 | `TOKENREDUCER_MAX_PAYLOAD_BYTES` | `1048576` | Combined serialized UTF-8 work order, including rules and file text; maximum 16 MiB |
 | `TOKENREDUCER_TIMEOUT_SECONDS` | `120` | Worker deadline shared by fallback attempts; maximum 3,600 seconds |
-| `TOKENREDUCER_BULK_READER_MODEL` | `claude-haiku-4.5` | Explicit reader model |
-| `TOKENREDUCER_CODE_WRITER_MODEL` | `gpt-5.4-mini` | Explicit writer model |
+| `TOKENREDUCER_BULK_READER_MODEL` | Saved `reader`, otherwise SETUP | Explicit reader model, overrides the file |
+| `TOKENREDUCER_CODE_WRITER_MODEL` | Saved `writer`, otherwise SETUP | Explicit writer model, overrides the file |
 | `TOKENREDUCER_COPILOT_BIN` | `copilot` on PATH | Absolute native executable or `.js`/`.mjs`/`.cjs` entry point; not a shell shim |
 
-Scripts read overrides on every call. Native profile YAML is static; the
-installer renders the current model overrides, so reinstall with `--overwrite`
-after changing them. Host preferences can still override a native profile.
+Scripts read the user config and environment overrides on every call, independent
+of the launch directory. Native profile YAML is static; the installer renders the
+saved models with environment overrides taking precedence. After setup or changes,
+run `node scripts/install.mjs --project /path/to/workspace --overwrite`
+(or `--personal --overwrite`) to refresh those fields. Use `--project . --overwrite`
+to refresh the profiles in this checkout too. The shipped native profile values
+are not runtime defaults. Host preferences can still override a native profile.
 Auth errors, timeouts, missing model reports, malformed output, and empty answers
 do not trigger model fallback.
 

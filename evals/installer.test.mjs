@@ -9,7 +9,11 @@ import {
 
 function runInstall(work, args, env = {}) {
   return runProcess(process.execPath, [INSTALLER, ...args], {
-    env: processEnvironment(work.home, env),
+    env: processEnvironment(work.home, {
+      TOKENREDUCER_BULK_READER_MODEL: 'eval-reader-model',
+      TOKENREDUCER_CODE_WRITER_MODEL: 'eval-writer-model',
+      ...env,
+    }),
   });
 }
 
@@ -69,7 +73,7 @@ test('project installation copies only owned assets and its real hooks work', as
   assert.equal(summary.scope, 'project');
   assert.equal(summary.installed, expected.length);
   assert.equal(summary.unchanged, 0);
-  assert.deepEqual(summary.models, { 'bulk-reader': 'claude-haiku-4.5', 'code-writer': 'gpt-5.4-mini' });
+  assert.deepEqual(summary.models, { 'bulk-reader': 'eval-reader-model', 'code-writer': 'eval-writer-model' });
   await verifyInstalledSkills(work.root, '.github');
   const config = JSON.parse(await readFile(path.join(work.root, '.github/hooks/tokenreducer.json'), 'utf8'));
   await exerciseInstalledHooks(t, work.root, config);
