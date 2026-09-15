@@ -109,7 +109,7 @@ if (contractErrors.length) {
     emit('assistant.message', { content });
   };
   const unavailable = plan.mode === 'unavailable-all'
-    || (plan.mode === 'unavailable-primary' && model !== 'gpt-5-mini');
+    || (plan.mode === 'unavailable-primary' && model !== 'eval-fallback-model');
   if (unavailable) {
     if (plan.channel === 'stderr') {
       process.stderr.write('Unknown model: deterministic unavailable-model fixture; STUB_PRIVATE_DIAGNOSTIC.\n');
@@ -187,6 +187,6 @@ if (contractErrors.length) {
     }
     if (plan.fence) content = `${plan.fence}\n${content.replace(/\n$/, '')}\n${plan.fence.match(/^[`~]+/)[0]}\n`;
     if (plan.diagnostics) process.stderr.write('STUB_PRIVATE_DIAGNOSTIC: never forward this child stderr.\n');
-    answer(content, plan.mode === 'wrong-model' ? 'unrequested-eval-model' : model);
+    answer(content, plan.mode === 'wrong-model' ? 'unrequested-eval-model' : plan.reportedModel ?? model);
   }
 }

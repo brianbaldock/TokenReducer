@@ -37,11 +37,12 @@ and confirmation-only generation stdout. They are deterministic adapters around
 Copilot prompt mode. They validate input, construct a size-limited work order, pipe it to stdin,
 select a cheap model, capture the CLI's JSONL stream, extract only
 the final assistant answer, and discard the rest. A response must report the
-requested model; missing or mismatched model evidence withholds the answer.
+requested model, ignoring case and allowing only saved, directional aliases;
+missing or mismatched model evidence withholds the answer.
 A temporary custom-agent profile has no tools. The adapter deliberately omits
 `-p`, which would discard stdin in
-Copilot's programmatic mode. Unavailable models can retry
-on GPT-5 mini within the same deadline. Other failures are errors, not successful
+Copilot's programmatic mode. Unavailable models can retry only a configured,
+different fallback ID within the same deadline. Other failures are errors, not successful
 fallback answers. No worker ever defaults to the coordinator's model.
 
 Source, request, and transcript bytes remain in ordinary process memory or a
@@ -50,10 +51,18 @@ Generation is published to a validated target only after a nonempty successful
 response. Fences are stripped, conflicts are refused, and the result returned
 to the parent is a short path-written confirmation.
 
-The two native profiles remain instruction-only alternatives with static default
-models. Environment-aware model selection, retry logic, output ceilings, and path checks belong in scripts, not
-invented agent-frontmatter properties. The installer can render model overrides
-into native profiles. Host-side settings and cloud support still matter.
+First-run setup saves explicit worker IDs in the user's
+`~/.config/tokenreducer/models.json` (or under `XDG_CONFIG_HOME`).
+CLI help discovery is optional; manual IDs work for different host catalogs.
+Environment overrides win, and an unconfigured scripted worker fails with SETUP
+before starting inference. There is no built-in worker or fallback model.
+
+The two native profiles remain instruction-only alternatives with static model
+fields. Config-aware model selection, retry logic, output ceilings, and path checks
+belong in scripts, not invented agent-frontmatter properties. The installer renders
+saved models and environment overrides into native profiles with `--overwrite`.
+The launch host does not select the user config. Scripted inference still uses the
+official CLI; native routing, host-side settings, and cloud support still matter.
 
 ## Soft: routing skills
 

@@ -3,11 +3,18 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { parseResponse } from '../.github/skills/bulk-reader/scripts/lib/copilot.mjs';
+import { saveModelConfig } from '../.github/skills/bulk-reader/scripts/lib/setup.mjs';
 import { FIXTURES, anchorQuestion } from './fixtures.mjs';
 import {
   assertFailure, assertSuccess, configureStub, copyFixtures, exists, metadata, observations,
-  readerArgs, runWorker, seedSmallFiles, workspace, writerArgs,
+  processEnvironment, readerArgs, runWorker, seedSmallFiles, workspace, writerArgs,
 } from './helpers.mjs';
+
+function configureModels(root, extra = {}) {
+  return saveModelConfig({
+    reader: 'eval-reader-model', writer: 'eval-writer-model', fallback: 'eval-fallback-model', ...extra,
+  }, processEnvironment(root));
+}
 
 test('actual process transport is one-shot stdin JSON with an ephemeral tool-free agent and no inherited history', async (t) => {
   const work = await workspace(t, 'isolation');
@@ -82,11 +89,11 @@ test('actual process transport is one-shot stdin JSON with an ephemeral tool-fre
   assert.equal(await readFile(path.join(parentHome, 'config.json'), 'utf8'), parentConfig);
   assert.equal(await exists(record.cwd), false, 'The private agent, config, and work order must be removed after completion.');
   assert.equal(await exists(record.home), false);
-  metadata(result, { kind: 'bulk-reader', model: 'claude-haiku-4.5', attempts: 1 });
+  metadata(result, { kind: 'bulk-reader', model: 'eval-reader-model', attempts: 1 });
 });
 
 test('JSONL answers require explicit matching model evidence throughout the response', async (t) => {
-  const model = 'gpt-5-mini';
+  const model = 'eval-worker-model';
   const answer = { type: 'assistant.message', data: { content: 'Exact compact answer.' } };
   const usage = (value) => ({ type: 'assistant.usage', data: { model: value } });
   const start = (value) => ({ type: 'model.call_start', data: { model: value } });
@@ -95,6 +102,7 @@ test('JSONL answers require explicit matching model evidence throughout the resp
     ['matching call start', [start(model), answer], true],
     ['model evidence after answer', [answer, usage(model)], true],
     ['multiple matching reports', [start(model), answer, usage(model)], true],
+    ['case-insensitive model evidence', [start(model.toUpperCase()), answer, usage(model)], true],
     ['no model event', [answer], false],
     ['unrelated event with a model field', [{ type: 'session.start', data: { model } }, answer], false],
     ['missing model field', [{ type: 'assistant.usage', data: {} }, answer], false],
@@ -116,14 +124,14 @@ test('JSONL answers require explicit matching model evidence throughout the resp
 });
 
 test('model mismatch diagnostics identify the observed and requested IDs without transcript content', async (t) => {
-  const requested = 'gpt-5-mini';
+  const requested = 'eval-worker-model';
   const transcript = (observed) => [
     JSON.stringify({ type: 'assistant.usage', data: { model: observed } }),
     JSON.stringify({ type: 'assistant.message', data: { content: 'PRIVATE_ANSWER_MUST_NOT_ESCAPE' } }),
   ].join('\n');
   assert.throws(() => parseResponse(transcript('unrequested-model'), requested), {
     code: 'MODEL',
-    message: 'Copilot reported worker model unrequested-model; requested gpt-5-mini. Output was withheld.',
+    message: 'Copilot reported worker model unrequested-model; requested eval-worker-model. Output was withheld.',
   });
   for (const observed of ['bad\nPRIVATE_DIAGNOSTIC', 'bad\u001b[31m', 'x'.repeat(81), 'bad model ID']) {
     await t.test(`malformed model of length ${observed.length}`, () => {
@@ -163,13 +171,14 @@ test('second questions resend identical complete paths into a new isolated proce
   }
 });
 
-test('explicit default and override models are recorded as the actual successful model', async (t) => {
+test('explicitly configured models are recorded as the successful requested model', async (t) => {
   const cases = [
-    ['reader default', 'bulk-reader', {}, 'claude-haiku-4.5'],
-    ['writer default', 'code-writer', {}, 'gpt-5.4-mini'],
+    ['reader configured', 'bulk-reader', {}, 'eval-reader-model'],
+    ['writer configured', 'code-writer', {}, 'eval-writer-model'],
     ['reader override', 'bulk-reader', { TOKENREDUCER_BULK_READER_MODEL: 'eval-reader-small' }, 'eval-reader-small'],
     ['writer override', 'code-writer', { TOKENREDUCER_CODE_WRITER_MODEL: 'eval-writer-small' }, 'eval-writer-small'],
-    ['fallback selected explicitly', 'bulk-reader', { TOKENREDUCER_BULK_READER_MODEL: 'gpt-5-mini' }, 'gpt-5-mini'],
+    ['fallback selected explicitly', 'bulk-reader', { TOKENREDUCER_BULK_READER_MODEL: 'eval-fallback-model' }, 'eval-fallback-model'],
+    ['host-specific ID', 'bulk-reader', { TOKENREDUCER_BULK_READER_MODEL: 'Provider/Reader_v2:fast' }, 'Provider/Reader_v2:fast'],
   ];
   for (const [name, kind, env, expectedModel] of cases) {
     await t.test(name, async (subtest) => {
@@ -186,22 +195,23 @@ test('explicit default and override models are recorded as the actual successful
 });
 
 test('only model-unavailable failures retry once on the explicit cheap fallback', async (t) => {
-  for (const [kind, primary] of [['bulk-reader', 'claude-haiku-4.5'], ['code-writer', 'gpt-5.4-mini']]) {
+  for (const [kind, primary] of [['bulk-reader', 'eval-reader-model'], ['code-writer', 'eval-writer-model']]) {
     for (const channel of ['event', 'stderr']) {
       await t.test(`${kind}: ${channel}`, async (subtest) => {
         const { root } = await workspace(subtest, 'fallback');
         await seedSmallFiles(root);
+        await configureModels(root);
         await configureStub(root, { mode: 'unavailable-primary', channel });
         const args = kind === 'bulk-reader' ? readerArgs(root) : writerArgs(root, ['--target', 'generated.mjs']);
         const result = await runWorker(kind, args, { root });
         assertSuccess(result);
         const records = await observations(root);
-        assert.deepEqual(records.map((record) => record.model), [primary, 'gpt-5-mini']);
+        assert.deepEqual(records.map((record) => record.model), [primary, 'eval-fallback-model']);
         assert.equal(records[0].payloadHash, records[1].payloadHash);
-        metadata(result, { kind, model: 'gpt-5-mini', attempts: 2 });
+        metadata(result, { kind, model: 'eval-fallback-model', attempts: 2 });
         assert.equal(result.stderr.includes('STUB_PRIVATE_DIAGNOSTIC'), false);
         if (kind === 'code-writer') {
-          assert.equal(JSON.parse(result.stdout).model, 'gpt-5-mini');
+          assert.equal(JSON.parse(result.stdout).model, 'eval-fallback-model');
           assert.equal(await exists(path.join(root, 'generated.mjs')), true);
         }
       });
@@ -210,24 +220,27 @@ test('only model-unavailable failures retry once on the explicit cheap fallback'
   await t.test('override unavailable then cheap fallback', async (subtest) => {
     const { root } = await workspace(subtest, 'override-fallback');
     await seedSmallFiles(root);
+    await configureModels(root);
     await configureStub(root, { mode: 'unavailable-primary' });
     const result = await runWorker('bulk-reader', readerArgs(root), {
       root, env: { TOKENREDUCER_BULK_READER_MODEL: 'eval-reader-small' },
     });
     assertSuccess(result);
-    assert.deepEqual((await observations(root)).map((record) => record.model), ['eval-reader-small', 'gpt-5-mini']);
-    metadata(result, { model: 'gpt-5-mini', attempts: 2 });
+    assert.deepEqual((await observations(root)).map((record) => record.model), ['eval-reader-small', 'eval-fallback-model']);
+    metadata(result, { model: 'eval-fallback-model', attempts: 2 });
   });
 });
 
 test('unavailable fallback is terminal and duplicate fallback model IDs do not cause retries', async (t) => {
-  for (const [label, env, expectedModels] of [
-    ['both unavailable', {}, ['claude-haiku-4.5', 'gpt-5-mini']],
-    ['primary already fallback', { TOKENREDUCER_BULK_READER_MODEL: 'gpt-5-mini' }, ['gpt-5-mini']],
+  for (const [label, env, expectedModels, configured] of [
+    ['both unavailable', {}, ['eval-reader-model', 'eval-fallback-model'], true],
+    ['primary already fallback', { TOKENREDUCER_BULK_READER_MODEL: 'eval-fallback-model' }, ['eval-fallback-model'], true],
+    ['no configured fallback', {}, ['eval-reader-model'], false],
   ]) {
     await t.test(label, async (subtest) => {
       const { root } = await workspace(subtest, 'all-unavailable');
       await seedSmallFiles(root);
+      if (configured) await configureModels(root);
       await configureStub(root, { mode: 'unavailable-all' });
       assertFailure(await runWorker('bulk-reader', readerArgs(root), { root, env }), 'MODEL_UNAVAILABLE');
       assert.deepEqual((await observations(root)).map((record) => record.model), expectedModels);
@@ -254,13 +267,14 @@ test('auth, generic, CLI-version, protocol, and model-integrity failures never f
     await t.test(mode, async (subtest) => {
       const { root } = await workspace(subtest, 'transport-failure');
       await seedSmallFiles(root);
+      await configureModels(root);
       await configureStub(root, { mode });
       const result = await runWorker('code-writer', writerArgs(root, ['--target', 'generated.mjs']), { root });
       assertFailure(result, code);
       assert.equal((await observations(root)).length, 1, 'Only explicit model unavailability may retry.');
       assert.equal(await exists(path.join(root, 'generated.mjs')), false);
       if (mode === 'wrong-model' || mode === 'wrong-then-right-model') {
-        assert.match(result.stderr, /reported worker model unrequested-eval-model; requested gpt-5\.4-mini/);
+        assert.match(result.stderr, /reported worker model unrequested-eval-model; requested eval-writer-model/);
       }
       for (const sentinel of ['STUB_PRIVATE_DIAGNOSTIC', 'STUB_PARTIAL_ANSWER_MUST_NOT_ESCAPE', 'STUB_INVALID_TRANSCRIPT_NOT_JSON']) {
         assert.equal(result.stderr.includes(sentinel), false);
@@ -277,7 +291,7 @@ test('child stderr is isolated from successful answers and replaced with coarse 
   const result = await runWorker('bulk-reader', readerArgs(root), { root });
   assertSuccess(result);
   assert.equal(result.stdout, `${answer}\n`);
-  const summary = metadata(result, { kind: 'bulk-reader', model: 'claude-haiku-4.5', attempts: 1 });
+  const summary = metadata(result, { kind: 'bulk-reader', model: 'eval-reader-model', attempts: 1 });
   assert.equal(summary.outputBytes, Buffer.byteLength(answer));
   assert.equal(result.stderr.includes('STUB_PRIVATE_DIAGNOSTIC'), false);
   assert.equal(result.stderr.includes('requested exact evidence'), false);
@@ -288,10 +302,43 @@ test('one-second timeouts withhold partial answers, never retry, and remove priv
     await t.test(kind, async (subtest) => {
       const { root } = await workspace(subtest, 'timeout');
       await seedSmallFiles(root);
+      await configureModels(root);
       await configureStub(root, { mode: 'timeout' });
       const args = kind === 'bulk-reader' ? readerArgs(root) : writerArgs(root, ['--target', 'generated.mjs']);
       const result = await runWorker(kind, args, {
         root, env: { TOKENREDUCER_TIMEOUT_SECONDS: '1' }, timeoutMs: 10_000,
+      });
+
+      test('only explicitly saved directional aliases admit alternate model reports', async (t) => {
+        const requested = 'eval-writer-model';
+        const alias = 'eval-writer.model';
+        const answer = { type: 'assistant.message', data: { content: 'Compact model evidence.' } };
+        const report = (model) => ({ type: 'assistant.usage', data: { model } });
+        const transcript = (models) => [...models.map(report), answer].map(JSON.stringify).join('\n');
+        const aliases = { [requested.toUpperCase()]: [alias.toUpperCase()] };
+        assert.throws(() => parseResponse(transcript([alias]), requested), { code: 'MODEL' });
+        assert.equal(parseResponse(transcript([requested, alias]), requested, aliases), answer.data.content);
+        assert.throws(() => parseResponse(transcript([requested]), alias, aliases), { code: 'MODEL' });
+        for (const observed of ['auto', 'AUTO', 'eval-frontier-model']) {
+          assert.throws(() => parseResponse(transcript([alias, observed]), requested, aliases), { code: 'MODEL' });
+        }
+        for (const saved of [false, true]) {
+          await t.test(saved ? 'saved alias publishes target' : 'unsaved alias withholds target', async (subtest) => {
+            const { root } = await workspace(subtest, 'model-alias');
+            await seedSmallFiles(root);
+            await configureModels(root, saved ? { aliases } : {});
+            await configureStub(root, { reportedModel: alias });
+            const result = await runWorker('code-writer', writerArgs(root, ['--target', 'generated.mjs']), { root });
+            if (saved) {
+              assertSuccess(result);
+              assert.equal(await readFile(path.join(root, 'generated.mjs'), 'utf8'), 'STUB: deterministic compact answer.\n');
+            } else {
+              assertFailure(result, 'MODEL');
+              assert.equal(await exists(path.join(root, 'generated.mjs')), false);
+            }
+            assert.equal((await observations(root)).length, 1);
+          });
+        }
       });
       assertFailure(result, 'TIMEOUT');
       assert.ok(result.elapsedMs >= 850 && result.elapsedMs < 8000, 'The configured deadline must terminate a still-running child.');

@@ -16,6 +16,8 @@ node <skill-directory>/scripts/code-writer.mjs --root <workspace> --spec "Add an
 Use `--spec-file` for a long spec. `--overwrite` is explicit. Without `--target`,
 only small code responses are permitted; use a target for normal generation.
 Install this skill together with `bulk-reader`, which supplies the shared runtime.
+On `SETUP`, run the bulk-reader skill's `scripts/setup.mjs` or supply the
+`TOKENREDUCER_CODE_WRITER_MODEL` environment override. Do not guess a model ID.
 
 The native `code-writer` agent is an instruction-only alternative, not the path
 measured by the stub accounting. Ask the current coordinator to spawn a fresh

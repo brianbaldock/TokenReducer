@@ -13,6 +13,8 @@ node <skill-directory>/scripts/bulk-reader.mjs --root <workspace> --question "Wh
 ```
 
 Repeat `--path` for multiple files. Use `--question-file` for a long question.
+On `SETUP`, run `node <skill-directory>/scripts/setup.mjs` or supply the
+`TOKENREDUCER_BULK_READER_MODEL` environment override. Do not guess a model ID.
 Follow-ups start a new call with the same paths and a new question.
 Do not construct substitute shell pipelines or inline the corpus.
 

@@ -49,7 +49,7 @@ test('writer strips whole-response fences without forwarding explanations or cha
       const result = await runWorker('code-writer', writerArgs(root), { root });
       assertSuccess(result);
       assert.equal(result.stdout, expected);
-      metadata(result, { kind: 'code-writer', model: 'gpt-5.4-mini', attempts: 1 });
+      metadata(result, { kind: 'code-writer', model: 'eval-writer-model', attempts: 1 });
     });
   }
   for (const answer of ['```js\nexport const value = 1;\n~~~', '```js\nexport const value = 1;', '```js\nexport const value = 1;\n```\nUnexpected explanation.']) {
@@ -125,11 +125,11 @@ test('generate-to-disk writes nontrivial code and returns only a compact confirm
   assert.deepEqual(Object.keys(confirmation).sort(), ['bytes', 'model', 'written']);
   assert.equal(confirmation.written, target);
   assert.equal(confirmation.bytes, Buffer.byteLength(actual));
-  assert.equal(confirmation.model, 'gpt-5.4-mini');
+  assert.equal(confirmation.model, 'eval-writer-model');
   assert.ok(Buffer.byteLength(result.stdout) < 1024);
   assert.equal(result.stdout.includes('export '), false, 'Generated code bodies must not enter parent stdout.');
   assert.equal(result.stderr.includes('STUB_PRIVATE_DIAGNOSTIC'), false);
-  metadata(result, { kind: 'code-writer', model: 'gpt-5.4-mini', attempts: 1 });
+  metadata(result, { kind: 'code-writer', model: 'eval-writer-model', attempts: 1 });
   if (process.platform !== 'win32') assert.equal((await stat(path.join(root, target))).mode & 0o777, 0o600);
 });
 

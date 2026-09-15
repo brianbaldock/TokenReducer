@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { InputError, modelName } from './config.mjs';
+import { InputError, modelMatches, modelName } from './config.mjs';
 
 const inheritedKeys = new Set([
   'PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT',
@@ -77,7 +77,7 @@ function cliFailure(diagnostics) {
   return new InputError('CLI_FAILURE', 'Copilot failed. Check CLI authentication, model access, and version; child diagnostics were withheld.');
 }
 
-export function parseResponse(stdout, requestedModel) {
+export function parseResponse(stdout, requestedModel, aliases = {}) {
   const requested = modelName(requestedModel);
   let answer;
   let errorMessage;
@@ -102,7 +102,7 @@ export function parseResponse(stdout, requestedModel) {
     throw cliFailure(errorMessage);
   }
   if (observedModels.size === 0) throw new InputError('MODEL', 'Copilot did not report the worker model; output was withheld.');
-  const unexpectedModel = [...observedModels].find((model) => model !== requested);
+  const unexpectedModel = [...observedModels].find((model) => !modelMatches(model, requested, aliases));
   if (unexpectedModel !== undefined) {
     throw new InputError('MODEL', `Copilot reported worker model ${modelName(unexpectedModel)}; requested ${requested}. Output was withheld.`);
   }
@@ -203,7 +203,7 @@ export async function invokeCopilot(prepared, config, env = process.env) {
       try {
         // Copilot treats piped stdin as a one-shot prompt; -p would discard stdin.
         const stdout = await spawnOnce(executable, args, { cwd: directory, env: childEnv, timeoutMs: remaining, input: prepared.payload });
-        const answer = parseResponse(stdout, model);
+        const answer = parseResponse(stdout, model, config.aliases);
         return { answer, model, attempts: attempt + 1 };
       } catch (error) {
         if (!(error instanceof InputError) || error.code !== 'MODEL_UNAVAILABLE') throw error;
